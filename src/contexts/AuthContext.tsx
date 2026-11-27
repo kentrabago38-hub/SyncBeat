@@ -50,10 +50,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const token = await result.user.getIdToken();
       setIdToken(token);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Sign-in could not be completed';
-      if (!msg.includes('popup-closed-by-user')) {
-        setAuthError(msg);
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? String((error as { code?: unknown }).code)
+          : '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return;
       }
+      if (code === 'auth/popup-blocked') {
+        setAuthError('Sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
+        return;
+      }
+      if (code === 'auth/unauthorized-domain') {
+        setAuthError('This domain is not yet authorized in Firebase Authentication settings.');
+        return;
+      }
+      const msg = error instanceof Error ? error.message : 'Sign-in could not be completed';
+      setAuthError(msg);
     }
   }, []);
 

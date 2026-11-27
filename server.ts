@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import express from 'express';
-import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,15 +10,17 @@ import {
   DEFAULT_CLICK_PROFILE,
   DEFAULT_PRESETS,
   DEFAULT_SETLISTS,
-} from './src/constants/metronomeData';
+} from './src/constants/metronomeData.ts';
 import {
   deleteLiveSessionFromDb,
   getLiveSessionFromDb,
   getOrCreateUser,
+  getSharedLibrary,
   getUserLibrary,
   getUserSessionConfig,
   pruneExpiredLiveSessions,
   upsertLiveSessionInDb,
+  upsertSharedLibrary,
   upsertUserLibrary,
   upsertUserSessionConfig,
 } from './src/db/repository.ts';
@@ -39,44 +40,10 @@ import {
   SetlistItem,
   SubdivisionType,
   TimeSignature,
-} from './src/types/metronome';
+} from './src/types/metronome.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const STORE_PATH = path.resolve(__dirname, '.syncbeat-store.json');
-
-interface LibraryStore {
-  presets: MetronomePreset[];
-  setlists: Setlist[];
-}
-
-function loadStore(): LibraryStore {
-  try {
-    if (fs.existsSync(STORE_PATH)) {
-      const raw = fs.readFileSync(STORE_PATH, 'utf-8');
-      const parsed = JSON.parse(raw) as Partial<LibraryStore>;
-      return {
-        presets: Array.isArray(parsed.presets) && parsed.presets.length > 0 ? parsed.presets : DEFAULT_PRESETS,
-        setlists: Array.isArray(parsed.setlists) && parsed.setlists.length > 0 ? parsed.setlists : DEFAULT_SETLISTS,
-      };
-    }
-  } catch {
-    // fallback to defaults
-  }
-  return { presets: DEFAULT_PRESETS, setlists: DEFAULT_SETLISTS };
-}
-
-function saveStore(store: LibraryStore): void {
-  try {
-    const tmp = `${STORE_PATH}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8');
-    fs.renameSync(tmp, STORE_PATH);
-  } catch (err) {
-    console.error('Failed to persist SyncBeat library:', err);
-  }
-}
-
-let libraryStore = loadStore();
 
 interface ServerSession {
   state: MetronomeSessionState;
@@ -381,30 +348,49 @@ async function startServer() {
     }
   });
 
-  app.get('/api/library', (_req, res) => {
-    res.json(libraryStore);
+  app.get('/api/library', async (_req, res) => {
+    try {
+      const store = await getSharedLibrary();
+      res.json(store);
+    } catch {
+      res.json({ presets: DEFAULT_PRESETS, setlists: DEFAULT_SETLISTS });
+    }
   });
 
-  app.put('/api/library/presets', (req, res) => {
+  app.put('/api/library/presets', async (req, res) => {
     const { presets } = req.body as { presets?: unknown };
     if (!Array.isArray(presets)) {
       res.status(400).json({ error: 'Invalid presets array' });
       return;
     }
-    libraryStore.presets = presets.slice(0, 100) as MetronomePreset[];
-    saveStore(libraryStore);
-    res.json({ ok: true, presets: libraryStore.presets });
+    try {
+      const current = await getSharedLibrary();
+      const nextPresets = presets.slice(0, 100) as MetronomePreset[];
+      await upsertSharedLibrary(nextPresets, current.setlists);
+      res.json({ ok: true, presets: nextPresets });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to save presets',
+      });
+    }
   });
 
-  app.put('/api/library/setlists', (req, res) => {
+  app.put('/api/library/setlists', async (req, res) => {
     const { setlists } = req.body as { setlists?: unknown };
     if (!Array.isArray(setlists)) {
       res.status(400).json({ error: 'Invalid setlists array' });
       return;
     }
-    libraryStore.setlists = setlists.slice(0, 50) as Setlist[];
-    saveStore(libraryStore);
-    res.json({ ok: true, setlists: libraryStore.setlists });
+    try {
+      const current = await getSharedLibrary();
+      const nextSetlists = setlists.slice(0, 50) as Setlist[];
+      await upsertSharedLibrary(current.presets, nextSetlists);
+      res.json({ ok: true, setlists: nextSetlists });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to save setlists',
+      });
+    }
   });
 
   // Public session lookup for join prompt
@@ -549,7 +535,19 @@ async function startServer() {
     };
 
     sessions.set(sessionId, serverSession);
-    persistSessionToDb(serverSession);
+    try {
+      await upsertLiveSessionInDb({
+        sessionId: serverSession.state.sessionId,
+        hostUid: serverSession.hostUid,
+        hostToken: serverSession.hostToken,
+        state: serverSession.state,
+        participantTokens: { [hostId]: hostToken },
+        kickedIds: [],
+        ended: false,
+      });
+    } catch (err) {
+      console.error('Failed to persist newly created live session:', err);
+    }
     res.status(201).json({
       session: state,
       participantId: hostId,
@@ -934,6 +932,8 @@ async function startServer() {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
+    } else {
+      socket.destroy();
     }
   });
 
@@ -1261,7 +1261,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true, hmr: false, ws: false, watch: null },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -17,7 +17,7 @@ import type {
   SetlistItem,
   SubdivisionType,
   TimeSignature,
-} from '../types/metronome';
+} from '../types/metronome.ts';
 
 export interface PersistedSessionConfigPayload {
   name?: string;
@@ -62,6 +62,13 @@ export const userSessionConfigs = pgTable('user_session_configs', {
     .unique()
     .references(() => users.uid, { onDelete: 'cascade' }),
   config: jsonb('config').$type<PersistedSessionConfigPayload>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const sharedLibrary = pgTable('shared_library', {
+  id: text('id').primaryKey(),
+  presets: jsonb('presets').$type<MetronomePreset[]>().notNull(),
+  setlists: jsonb('setlists').$type<Setlist[]>().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

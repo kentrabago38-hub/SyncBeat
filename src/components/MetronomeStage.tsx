@@ -33,6 +33,7 @@ import {
 } from '../types/metronome';
 import { TimelineSnapshot } from '../utils/timeline';
 import { BeatVisualizer } from './BeatVisualizer';
+import { D3BeatPulseVisualizer } from './D3BeatPulseVisualizer';
 import { VocalCountdown } from './VocalCountdown';
 
 interface MetronomeStageProps {
@@ -386,6 +387,17 @@ export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
 
         {/* Beat Visualizer */}
         <div className="mt-7 pt-6 border-t border-white/[0.06]">
+          <D3BeatPulseVisualizer
+            bpm={session.bpm}
+            timeSignature={session.timeSignature}
+            accentPattern={session.accentPattern}
+            subdivision={session.subdivision}
+            timeline={timeline}
+            canEditAccents={isHost}
+            onToggleBeatAccent={cycleBeatAccent}
+            visualFlash={accessibility.visualFlash}
+            reducedMotion={accessibility.reducedMotion}
+          />
           <BeatVisualizer
             timeSignature={session.timeSignature}
             accentPattern={session.accentPattern}

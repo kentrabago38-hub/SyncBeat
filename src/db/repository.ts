@@ -2,16 +2,17 @@ import { eq, lt } from 'drizzle-orm';
 import {
   DEFAULT_PRESETS,
   DEFAULT_SETLISTS,
-} from '../constants/metronomeData';
+} from '../constants/metronomeData.ts';
 import type {
   MetronomePreset,
   MetronomeSessionState,
   Setlist,
-} from '../types/metronome';
-import { db, isDbConfigured } from './index.ts';
+} from '../types/metronome.ts';
+import { db } from './index.ts';
 import {
   liveSessions,
   PersistedSessionConfigPayload,
+  sharedLibrary,
   userLibraries,
   users,
   userSessionConfigs,
@@ -27,33 +28,66 @@ export interface LiveSessionDbRecord {
   ended: boolean;
 }
 
-// In-memory fallback stores when Cloud SQL is not provisioned
-const memoryUsers = new Map<
-  string,
-  { id: number; uid: string; email: string; displayName: string | null; createdAt: Date; updatedAt: Date }
->();
-const memoryUserLibraries = new Map<
-  string,
-  { presets: MetronomePreset[]; setlists: Setlist[]; updatedAt: number }
->();
-const memoryUserConfigs = new Map<string, PersistedSessionConfigPayload>();
-const memoryLiveSessions = new Map<string, LiveSessionDbRecord & { lastActivityAt: Date }>();
-let nextMockUserId = 1;
+const SHARED_LIBRARY_ID = 'default';
+
+export async function getSharedLibrary(): Promise<{
+  presets: MetronomePreset[];
+  setlists: Setlist[];
+}> {
+  try {
+    const rows = await db
+      .select()
+      .from(sharedLibrary)
+      .where(eq(sharedLibrary.id, SHARED_LIBRARY_ID))
+      .limit(1);
+    const row = rows[0];
+    if (!row) {
+      await upsertSharedLibrary(DEFAULT_PRESETS, DEFAULT_SETLISTS);
+      return { presets: DEFAULT_PRESETS, setlists: DEFAULT_SETLISTS };
+    }
+    return {
+      presets: Array.isArray(row.presets) && row.presets.length > 0 ? row.presets : DEFAULT_PRESETS,
+      setlists:
+        Array.isArray(row.setlists) && row.setlists.length > 0 ? row.setlists : DEFAULT_SETLISTS,
+    };
+  } catch (error) {
+    console.error('Database query failed (getSharedLibrary):', error);
+    throw new Error('Database query failed. Please try again later.', { cause: error });
+  }
+}
+
+export async function upsertSharedLibrary(
+  presets: MetronomePreset[],
+  setlists: Setlist[]
+): Promise<void> {
+  try {
+    await db
+      .insert(sharedLibrary)
+      .values({
+        id: SHARED_LIBRARY_ID,
+        presets: presets.slice(0, 100),
+        setlists: setlists.slice(0, 50),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: sharedLibrary.id,
+        set: {
+          presets: presets.slice(0, 100),
+          setlists: setlists.slice(0, 50),
+          updatedAt: new Date(),
+        },
+      });
+  } catch (error) {
+    console.error('Database query failed (upsertSharedLibrary):', error);
+    throw new Error('Database query failed. Please try again later.', { cause: error });
+  }
+}
 
 export async function getOrCreateUser(
   uid: string,
   email: string,
   displayName?: string | null
 ) {
-  if (!isDbConfigured) {
-    const existing = memoryUsers.get(uid);
-    const now = new Date();
-    const record = existing
-      ? { ...existing, email, displayName: displayName ?? null, updatedAt: now }
-      : { id: nextMockUserId++, uid, email, displayName: displayName ?? null, createdAt: now, updatedAt: now };
-    memoryUsers.set(uid, record);
-    return record;
-  }
   try {
     const result = await db
       .insert(users)
@@ -83,9 +117,6 @@ export async function getUserLibrary(uid: string): Promise<{
   setlists: Setlist[];
   updatedAt: number;
 } | null> {
-  if (!isDbConfigured) {
-    return memoryUserLibraries.get(uid) ?? null;
-  }
   try {
     const rows = await db
       .select()
@@ -111,14 +142,6 @@ export async function upsertUserLibrary(
   presets: MetronomePreset[],
   setlists: Setlist[]
 ): Promise<void> {
-  if (!isDbConfigured) {
-    memoryUserLibraries.set(uid, {
-      presets: presets.slice(0, 100),
-      setlists: setlists.slice(0, 50),
-      updatedAt: Date.now(),
-    });
-    return;
-  }
   try {
     await db
       .insert(userLibraries)
@@ -145,9 +168,6 @@ export async function upsertUserLibrary(
 export async function getUserSessionConfig(
   uid: string
 ): Promise<PersistedSessionConfigPayload | null> {
-  if (!isDbConfigured) {
-    return memoryUserConfigs.get(uid) ?? null;
-  }
   try {
     const rows = await db
       .select()
@@ -170,13 +190,6 @@ export async function upsertUserSessionConfig(
   uid: string,
   config: PersistedSessionConfigPayload
 ): Promise<void> {
-  if (!isDbConfigured) {
-    memoryUserConfigs.set(uid, {
-      ...config,
-      updatedAt: config.updatedAt ?? Date.now(),
-    });
-    return;
-  }
   try {
     const payload: PersistedSessionConfigPayload = {
       ...config,
@@ -205,9 +218,6 @@ export async function upsertUserSessionConfig(
 export async function getLiveSessionFromDb(
   sessionId: string
 ): Promise<LiveSessionDbRecord | null> {
-  if (!isDbConfigured) {
-    return memoryLiveSessions.get(sessionId.toUpperCase().trim()) ?? null;
-  }
   try {
     const rows = await db
       .select()
@@ -232,13 +242,6 @@ export async function getLiveSessionFromDb(
 }
 
 export async function upsertLiveSessionInDb(record: LiveSessionDbRecord): Promise<void> {
-  if (!isDbConfigured) {
-    memoryLiveSessions.set(record.sessionId.toUpperCase().trim(), {
-      ...record,
-      lastActivityAt: new Date(),
-    });
-    return;
-  }
   try {
     await db
       .insert(liveSessions)
@@ -270,10 +273,6 @@ export async function upsertLiveSessionInDb(record: LiveSessionDbRecord): Promis
 }
 
 export async function deleteLiveSessionFromDb(sessionId: string): Promise<void> {
-  if (!isDbConfigured) {
-    memoryLiveSessions.delete(sessionId.toUpperCase().trim());
-    return;
-  }
   try {
     await db
       .delete(liveSessions)
@@ -285,14 +284,6 @@ export async function deleteLiveSessionFromDb(sessionId: string): Promise<void> 
 }
 
 export async function pruneExpiredLiveSessions(cutoff: Date): Promise<void> {
-  if (!isDbConfigured) {
-    for (const [id, rec] of memoryLiveSessions.entries()) {
-      if (rec.lastActivityAt < cutoff) {
-        memoryLiveSessions.delete(id);
-      }
-    }
-    return;
-  }
   try {
     await db.delete(liveSessions).where(lt(liveSessions.lastActivityAt, cutoff));
   } catch (error) {

@@ -953,7 +953,11 @@ export function useMetronomeSync(
 
   const createSession = useCallback(
     async (opts: { name: string; hostName: string; hostRole: MusicianRole }) => {
-      audioEngine.ensureContext();
+      try {
+        audioEngine.ensureContext();
+      } catch {
+        // allow session creation even if browser restricts Web Audio initialization
+      }
       setAudioSuspended(false);
 
       // Persist chosen host identity into local configuration as well
@@ -1014,7 +1018,11 @@ export function useMetronomeSync(
 
   const joinSession = useCallback(
     async (opts: { code: string; name: string; role: MusicianRole }) => {
-      audioEngine.ensureContext();
+      try {
+        audioEngine.ensureContext();
+      } catch {
+        // allow session join even if browser restricts Web Audio initialization
+      }
       const cleanCode = opts.code.toUpperCase().trim();
       const res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(cleanCode)}/join`), {
         method: 'POST',
@@ -1106,7 +1114,11 @@ export function useMetronomeSync(
 
   // Transport controls
   const play = useCallback(() => {
-    audioEngine.ensureContext();
+    try {
+      audioEngine.ensureContext();
+    } catch {
+      // ignore
+    }
     if (isWireless) {
       if (!permissions.playStop) return;
       sendCommand({ type: 'transport:play' });
@@ -1168,7 +1180,11 @@ export function useMetronomeSync(
   }, [isWireless, permissions.playStop, sendCommand]);
 
   const restart = useCallback(() => {
-    audioEngine.ensureContext();
+    try {
+      audioEngine.ensureContext();
+    } catch {
+      // ignore
+    }
     if (isWireless) {
       if (!permissions.playStop) return;
       sendCommand({ type: 'transport:restart' });
@@ -1267,7 +1283,11 @@ export function useMetronomeSync(
   );
 
   const registerTap = useCallback(() => {
-    audioEngine.ensureContext();
+    try {
+      audioEngine.ensureContext();
+    } catch {
+      // ignore
+    }
     setAudioSuspended(false);
     const now = performance.now();
     const taps = tapTimesRef.current;

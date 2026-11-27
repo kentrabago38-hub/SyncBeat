@@ -6,6 +6,7 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  let hmrDisabled = false;
   return {
     plugins: [
       react(),
@@ -85,7 +86,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module',
         },
       }),
@@ -101,6 +102,23 @@ export default defineConfig(() => {
           const distAssets = path.resolve(distDir, 'src/assets');
           if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, { recursive: true, force: true });
+          }
+        },
+      },
+      {
+        name: 'disable-hmr-client-ws',
+        apply: 'serve',
+        enforce: 'post',
+        configResolved(config) {
+          hmrDisabled = config.server.hmr === false || config.server.ws === false;
+        },
+        transform(code, id) {
+          if (!hmrDisabled) return;
+          if (id.includes('vite/dist/client/client.mjs') || id.includes('vite\\dist\\client\\client.mjs')) {
+            return code.replace(
+              /const transport = normalizeModuleRunnerTransport\(\(\(\) => \{[\s\S]*?\}\)\(\)\);/,
+              'const transport = normalizeModuleRunnerTransport({ connect() {}, disconnect() {}, send() {} });'
+            );
           }
         },
       },
