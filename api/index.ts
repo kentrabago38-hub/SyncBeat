@@ -502,11 +502,13 @@ app.use((req, res, next) => {
 });
 
 app.get('/api/health', (_req, res) => {
+  const now = Date.now();
   res.json({
     ok: true,
     runtime: 'vercel-serverless',
     storageMode: getRedisConfig() ? 'redis' : 'memory',
-    serverTime: Date.now(),
+    serverRecvTime: now,
+    serverTime: now,
   });
 });
 
@@ -772,6 +774,7 @@ app.post('/api/sessions/:code/join', async (req, res) => {
 // Serverless HTTP state/clock synchronization endpoint (fallback when WebSockets aren't available on Vercel)
 app.post('/api/sessions/:code/sync', async (req, res) => {
   try {
+    const serverRecvTime = Date.now();
     const code = String(req.params.code || '').toUpperCase().trim();
     const body = normalizeObjectBody(req.body) as {
       participantId?: string;
@@ -828,6 +831,7 @@ app.post('/api/sessions/:code/sync', async (req, res) => {
 
     res.json({
       session: record.state,
+      serverRecvTime,
       serverTime: Date.now(),
     });
   } catch (error) {
@@ -841,6 +845,7 @@ app.post('/api/sessions/:code/sync', async (req, res) => {
 // Serverless command endpoint mirroring WebSocket host/participant commands
 app.post('/api/sessions/:code/command', async (req, res) => {
   try {
+    const serverRecvTime = Date.now();
     const code = String(req.params.code || '').toUpperCase().trim();
     const body = normalizeObjectBody(req.body);
     const participantId = typeof body.participantId === 'string' ? body.participantId : '';
@@ -1023,7 +1028,7 @@ app.post('/api/sessions/:code/command', async (req, res) => {
         state.sessionId = newId;
         await deleteSessionRecord(oldId);
         await saveSessionRecord(newId, record);
-        res.json({ session: state, newSessionId: newId, serverTime: Date.now() });
+        res.json({ session: state, newSessionId: newId, serverRecvTime, serverTime: Date.now() });
         return;
       }
 
@@ -1068,7 +1073,7 @@ app.post('/api/sessions/:code/command', async (req, res) => {
         }
         record.ended = true;
         await saveSessionRecord(code, record);
-        res.json({ ended: true, serverTime: Date.now() });
+        res.json({ ended: true, serverRecvTime, serverTime: Date.now() });
         return;
       }
 
@@ -1078,7 +1083,7 @@ app.post('/api/sessions/:code/command', async (req, res) => {
     }
 
     await saveSessionRecord(code, record);
-    res.json({ session: state, serverTime: Date.now() });
+    res.json({ session: state, serverRecvTime, serverTime: Date.now() });
   } catch (error) {
     console.error('Error executing session command:', error);
     res.status(500).json({

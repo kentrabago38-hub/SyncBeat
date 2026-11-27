@@ -1,6 +1,6 @@
 import { Mic, Play, Volume2 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { ClickProfile, SubdivisionType, VocalCountMode } from '../types/metronome';
+import { ClickProfile, SubdivisionType, VocalCountMode, VocalVoiceStyle } from '../types/metronome';
 import { TimelineSnapshot } from '../utils/timeline';
 
 interface VocalCountdownProps {
@@ -23,6 +23,12 @@ const MODE_OPTIONS: Array<{ id: VocalCountMode; label: string }> = [
   { id: 'off', label: 'Off' },
 ];
 
+const VOICE_STYLE_OPTIONS: Array<{ id: VocalVoiceStyle; label: string; hint: string }> = [
+  { id: 'auto', label: 'Auto', hint: 'Adapts to tempo' },
+  { id: 'natural', label: 'Natural', hint: 'Warm vocal tone' },
+  { id: 'studio', label: 'Studio', hint: 'Crisp IEM cut' },
+];
+
 export const VocalCountdown: React.FC<VocalCountdownProps> = React.memo(({
   profile,
   bpm,
@@ -38,6 +44,7 @@ export const VocalCountdown: React.FC<VocalCountdownProps> = React.memo(({
   const previewTimersRef = useRef<number[]>([]);
 
   const vocalMode = profile.vocalMode ?? 'beats';
+  const vocalStyle: VocalVoiceStyle = profile.vocalStyle ?? 'auto';
   const isCountdownEnabled = vocalMode === 'bar_countdown';
   const isVocalActive = vocalMode !== 'off';
   const displayBeats = Math.min(8, Math.max(1, beatsPerBar));
@@ -315,6 +322,34 @@ export const VocalCountdown: React.FC<VocalCountdownProps> = React.memo(({
               }
               className="studio-slider w-full cursor-pointer"
             />
+          </div>
+
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50 dark:border-white/[0.06] dark:bg-[#181B23] p-4">
+            <div className="flex items-center justify-between text-xs mb-2.5">
+              <span className="font-semibold text-slate-900 dark:text-white">
+                Voice Tone
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-zinc-400">
+                {VOICE_STYLE_OPTIONS.find((s) => s.id === vocalStyle)?.hint}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {VOICE_STYLE_OPTIONS.map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  disabled={!isHost}
+                  onClick={() => onUpdateClickProfile({ vocalStyle: style.id })}
+                  className={`studio-keycap rounded-lg px-2.5 py-2 text-xs font-semibold transition disabled:opacity-45 ${
+                    vocalStyle === style.id
+                      ? 'bg-amber-500 text-zinc-950 shadow-sm'
+                      : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-white/10 dark:bg-[#0D0F14] dark:text-zinc-300 dark:hover:bg-white/10'
+                  }`}
+                >
+                  {style.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-slate-50 dark:border-white/[0.06] dark:bg-[#181B23] p-4">

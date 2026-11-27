@@ -4,6 +4,7 @@ import {
   ClickProfile,
   ClickSoundId,
   MetronomeSessionState,
+  VocalVoiceStyle,
 } from '../types/metronome';
 import { getSubdivisionsPerBeat } from '../utils/timeline';
 import { sharedAudioVocalizer } from './AudioVocalizer';
@@ -90,6 +91,7 @@ export class AudioEngine {
   private lastBpm = 0;
   private lastSubdivision = '';
   private lastVocalMode = '';
+  private lastVocalStyle = '';
   private lastBeatsPerBar = 0;
   private localMuted = false;
 
@@ -281,6 +283,7 @@ export class AudioEngine {
     const prevBpm = this.lastBpm;
     const prevSub = this.lastSubdivision;
     const prevVocalMode = this.lastVocalMode;
+    const prevVocalStyle = this.lastVocalStyle;
     const prevBeatsPerBar = this.lastBeatsPerBar;
     this.session = session;
 
@@ -291,19 +294,21 @@ export class AudioEngine {
       this.lastBpm = session?.bpm ?? 0;
       this.lastSubdivision = session?.subdivision ?? '';
       this.lastVocalMode = session?.clickProfile.vocalMode ?? '';
+      this.lastVocalStyle = session?.clickProfile.vocalStyle ?? 'auto';
       this.lastBeatsPerBar = session?.timeSignature.numerator ?? 0;
       return;
     }
 
     const ctx = this.ensureContext();
     const vocalMode = session.clickProfile.vocalMode ?? 'beats';
+    const vocalStyle = session.clickProfile.vocalStyle ?? 'auto';
     const beatsPerBar = Math.max(1, session.timeSignature.numerator);
     const seqChanged = session.playback.sequenceId !== prevSeq;
     const tempoChanged =
       session.bpm !== prevBpm ||
       session.subdivision !== prevSub ||
       beatsPerBar !== prevBeatsPerBar;
-    const vocalModeChanged = vocalMode !== prevVocalMode;
+    const vocalChanged = vocalMode !== prevVocalMode || vocalStyle !== prevVocalStyle;
 
     const estimatedServerNow = performance.now() + this.serverOffsetMs;
     const targetAnchorCtxTime =
@@ -317,6 +322,7 @@ export class AudioEngine {
       this.lastBpm = session.bpm;
       this.lastSubdivision = session.subdivision;
       this.lastVocalMode = vocalMode;
+      this.lastVocalStyle = vocalStyle;
       this.lastBeatsPerBar = beatsPerBar;
       this.anchorCtxTime = targetAnchorCtxTime;
 
@@ -327,17 +333,18 @@ export class AudioEngine {
       const currentStep = Math.floor(currentTotalBeats * subPerBeat);
       this.lastScheduledStepIndex = Math.max(-1, currentStep - 1);
     } else {
-      if (vocalModeChanged) {
+      if (vocalChanged) {
         sharedAudioVocalizer.stopAll(ctx);
         this.lastVocalMode = vocalMode;
+        this.lastVocalStyle = vocalStyle;
       }
       // Gentle phase slew when periodic NTP clock sync nudges offset slightly
       const driftSec = targetAnchorCtxTime - this.anchorCtxTime;
       const absDrift = Math.abs(driftSec);
-      if (absDrift > 0.025) {
+      if (absDrift > 0.045) {
         this.anchorCtxTime = targetAnchorCtxTime;
       } else if (absDrift > 0.002) {
-        this.anchorCtxTime += driftSec * 0.35;
+        this.anchorCtxTime += driftSec * 0.28;
       }
     }
 
@@ -438,6 +445,7 @@ export class AudioEngine {
 
     const clickEnabled = profile.clickEnabled ?? true;
     const vocalMode = profile.vocalMode ?? 'beats';
+    const vocalStyle: VocalVoiceStyle = profile.vocalStyle ?? 'auto';
     const vocalVolume = (profile.vocalVolume ?? 0.9) * masterVol;
     const destination = this.getMasterBus(this.ctx);
 
@@ -473,6 +481,7 @@ export class AudioEngine {
             isAccent: beatInBar === 0,
             isSubdivision: false,
             subdivisionsPerBeat: subPerBeat,
+            vocalStyle,
             destination,
           });
         }
@@ -489,6 +498,7 @@ export class AudioEngine {
             isAccent,
             isSubdivision: false,
             subdivisionsPerBeat: subPerBeat,
+            vocalStyle,
             destination,
           });
         }
@@ -538,6 +548,7 @@ export class AudioEngine {
           isAccent: false,
           isSubdivision: true,
           subdivisionsPerBeat: subPerBeat,
+          vocalStyle,
           destination,
         });
       }
@@ -549,13 +560,14 @@ export class AudioEngine {
     this.triggerSound(soundId, ctx.currentTime + 0.015, volume, isAccent);
   }
 
-  public previewVocalCount(volume = 0.9): void {
+  public previewVocalCount(volume = 0.9, vocalStyle?: VocalVoiceStyle): void {
     const ctx = this.ensureContext();
     sharedAudioVocalizer.previewBarCount(
       ctx,
       volume,
       this.session?.bpm ?? 120,
-      this.getMasterBus(ctx)
+      this.getMasterBus(ctx),
+      vocalStyle ?? this.session?.clickProfile.vocalStyle ?? 'auto'
     );
   }
 

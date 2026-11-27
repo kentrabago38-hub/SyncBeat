@@ -33,6 +33,7 @@ interface AuthCredentials {
 interface ClockSample {
   rtt: number;
   offset: number;
+  recordedAt: number;
 }
 
 const LOCAL_HOST_ID = 'local-musician';
@@ -222,9 +223,15 @@ export function useMetronomeSync(
   const transportModeRef = useRef<'ws' | 'http'>('ws');
   const httpPollTimerRef = useRef<number | null>(null);
   const httpInFlightRef = useRef<boolean>(false);
+  const httpAbortRef = useRef<AbortController | null>(null);
+  const httpSyncNowRef = useRef<(() => void) | null>(null);
+  const burstTimersRef = useRef<number[]>([]);
   const clockSamplesRef = useRef<ClockSample[]>([]);
   const localClockOffsetRef = useRef<number>(Date.now() - performance.now());
   const serverOffsetRef = useRef<number>(0);
+  const consecutiveFailuresRef = useRef<number>(0);
+  const lastMessageAtRef = useRef<number>(0);
+  const computedQualityRef = useRef<ConnectionQuality>('synced');
   const pingTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef<number>(0);
@@ -642,43 +649,114 @@ export function useMetronomeSync(
     };
   }, [isWireless, localSession]);
 
-  const recordClockSample = useCallback((clientSendTime: number, serverTime: number) => {
-    const clientRecvTime = performance.now();
-    if (!Number.isFinite(clientSendTime) || !Number.isFinite(serverTime)) return null;
-    const rtt = Math.max(0, clientRecvTime - clientSendTime);
-    const estimatedOffset = serverTime - (clientSendTime + rtt / 2);
-
-    const samples = clockSamplesRef.current;
-    samples.push({ rtt, offset: estimatedOffset });
-    if (samples.length > 12) samples.shift();
-
-    const sorted = [...samples].sort((a, b) => a.rtt - b.rtt);
-    const best = sorted.slice(0, Math.max(1, Math.ceil(sorted.length / 2)));
-    const avgOffset = best.reduce((acc, s) => acc + s.offset, 0) / best.length;
-    const oneWay = Math.round(best[0].rtt / 2);
-
-    serverOffsetRef.current = avgOffset;
-    setLatencyMs(oneWay);
-
-    const quality: ConnectionQuality =
-      samples.length < 2
-        ? 'syncing'
-        : best[0].rtt > 260
-        ? 'unstable'
-        : 'synced';
-    setConnectionQuality(quality);
-
-    setRemoteSession((prev) => {
-      if (prev) {
-        audioEngine.updateSyncState(prev, avgOffset);
+  const recordClockSample = useCallback(
+    (clientSendTime: number, serverTime: number, serverRecvTime?: number) => {
+      const clientRecvTime = performance.now();
+      if (
+        !Number.isFinite(clientSendTime) ||
+        !Number.isFinite(serverTime) ||
+        clientRecvTime < clientSendTime
+      ) {
+        return null;
       }
-      return prev;
-    });
 
-    return { oneWay, quality, sampleCount: samples.length };
+      consecutiveFailuresRef.current = 0;
+
+      const totalRtt = Math.max(0, clientRecvTime - clientSendTime);
+      const t2 =
+        typeof serverRecvTime === 'number' && Number.isFinite(serverRecvTime)
+          ? serverRecvTime
+          : serverTime;
+      const t3 = Math.max(t2, serverTime);
+      const serverProcMs = Math.max(0, Math.min(totalRtt, t3 - t2));
+      const networkRtt = Math.max(0, totalRtt - serverProcMs);
+      const estimatedOffset = (t2 - clientSendTime + (t3 - clientRecvTime)) / 2;
+
+      const samples = clockSamplesRef.current;
+      const existingMinRtt =
+        samples.length > 0 ? Math.min(...samples.map((s) => s.rtt)) : networkRtt;
+      const isOutlierSpike =
+        samples.length >= 3 && networkRtt > Math.max(900, existingMinRtt * 3.5);
+
+      if (!isOutlierSpike) {
+        samples.push({
+          rtt: networkRtt,
+          offset: estimatedOffset,
+          recordedAt: clientRecvTime,
+        });
+      }
+
+      // Drop stale samples older than 60s when we have plenty of recent ones
+      while (samples.length > 4 && clientRecvTime - samples[0].recordedAt > 60_000) {
+        samples.shift();
+      }
+      while (samples.length > 16) {
+        samples.shift();
+      }
+
+      if (samples.length === 0) {
+        samples.push({
+          rtt: networkRtt,
+          offset: estimatedOffset,
+          recordedAt: clientRecvTime,
+        });
+      }
+
+      const sorted = [...samples].sort((a, b) => a.rtt - b.rtt);
+      const best = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.5)));
+
+      // Inverse-RTT weighting favors the cleanest low-jitter packets
+      let weightSum = 0;
+      let weightedOffsetSum = 0;
+      for (const s of best) {
+        const w = 1 / (s.rtt + 12);
+        weightSum += w;
+        weightedOffsetSum += s.offset * w;
+      }
+      const targetOffset = weightedOffsetSum / Math.max(1e-6, weightSum);
+
+      // Smooth EMA once locked so tiny Wi-Fi jitter never jerks audio phase
+      const smoothedOffset =
+        samples.length >= 3 && Math.abs(targetOffset - serverOffsetRef.current) < 60
+          ? serverOffsetRef.current * 0.72 + targetOffset * 0.28
+          : targetOffset;
+
+      const oneWay = Math.round(best[0].rtt / 2);
+      const unstableRttThreshold = transportModeRef.current === 'http' ? 1400 : 900;
+
+      serverOffsetRef.current = smoothedOffset;
+      setLatencyMs(oneWay);
+
+      const quality: ConnectionQuality =
+        samples.length < 2
+          ? 'syncing'
+          : best[0].rtt > unstableRttThreshold
+          ? 'unstable'
+          : 'synced';
+      computedQualityRef.current = quality;
+      setConnectionQuality(quality);
+
+      setRemoteSession((prev) => {
+        if (prev) {
+          audioEngine.updateSyncState(prev, smoothedOffset);
+        }
+        return prev;
+      });
+
+      return { oneWay, quality, sampleCount: samples.length };
+    },
+    []
+  );
+
+  const clearBurstTimers = useCallback(() => {
+    for (const id of burstTimersRef.current) {
+      window.clearTimeout(id);
+    }
+    burstTimersRef.current = [];
   }, []);
 
   const cleanupSocket = useCallback(() => {
+    clearBurstTimers();
     if (pingTimerRef.current) {
       clearInterval(pingTimerRef.current);
       pingTimerRef.current = null;
@@ -691,6 +769,15 @@ export function useMetronomeSync(
       clearInterval(httpPollTimerRef.current);
       httpPollTimerRef.current = null;
     }
+    if (httpAbortRef.current) {
+      try {
+        httpAbortRef.current.abort();
+      } catch {
+        // ignore
+      }
+      httpAbortRef.current = null;
+    }
+    httpSyncNowRef.current = null;
     httpInFlightRef.current = false;
     if (wsRef.current) {
       wsRef.current.onclose = null;
@@ -699,7 +786,7 @@ export function useMetronomeSync(
       wsRef.current.close();
       wsRef.current = null;
     }
-  }, []);
+  }, [clearBurstTimers]);
 
   const sendWs = useCallback((payload: unknown) => {
     const ws = wsRef.current;
@@ -720,6 +807,7 @@ export function useMetronomeSync(
       void fetch(apiUrl(`/api/sessions/${encodeURIComponent(creds.sessionId)}/command`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           ...payload,
           participantId: creds.participantId,
@@ -731,10 +819,11 @@ export function useMetronomeSync(
             session?: MetronomeSessionState;
             newSessionId?: string;
             ended?: boolean;
+            serverRecvTime?: number;
             serverTime?: number;
           };
           if (typeof data.serverTime === 'number') {
-            recordClockSample(sendTime, data.serverTime);
+            recordClockSample(sendTime, data.serverTime, data.serverRecvTime);
           }
           if (data.ended) {
             manualDisconnectRef.current = true;
@@ -763,11 +852,13 @@ export function useMetronomeSync(
   );
 
   const startHttpSync = useCallback(
-    (creds: AuthCredentials) => {
+    (_creds: AuthCredentials) => {
       cleanupSocket();
       manualDisconnectRef.current = false;
       transportModeRef.current = 'http';
       clockSamplesRef.current = [];
+      consecutiveFailuresRef.current = 0;
+      computedQualityRef.current = 'syncing';
       setConnectionQuality('syncing');
       setReconnecting(false);
 
@@ -775,27 +866,35 @@ export function useMetronomeSync(
         const activeCreds = credsRef.current;
         if (!activeCreds || manualDisconnectRef.current || httpInFlightRef.current) return;
         httpInFlightRef.current = true;
+        const controller = new AbortController();
+        httpAbortRef.current = controller;
+        const timeoutId = window.setTimeout(() => controller.abort(), 6000);
         const sendTime = performance.now();
         try {
           const bestLatency =
             clockSamplesRef.current.length > 0
               ? Math.round(Math.min(...clockSamplesRef.current.map((s) => s.rtt)) / 2)
               : 0;
+          const reportedStatus =
+            computedQualityRef.current === 'offline' ? 'syncing' : computedQualityRef.current;
           const res = await fetch(
             apiUrl(`/api/sessions/${encodeURIComponent(activeCreds.sessionId)}/sync`),
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              signal: controller.signal,
               body: JSON.stringify({
                 participantId: activeCreds.participantId,
                 token: activeCreds.token,
                 latencyMs: bestLatency,
-                status: 'synced',
+                status: reportedStatus,
               }),
             }
           );
           const data = (await res.json().catch(() => ({}))) as {
             session?: MetronomeSessionState;
+            serverRecvTime?: number;
             serverTime?: number;
             ended?: boolean;
             kicked?: boolean;
@@ -823,30 +922,57 @@ export function useMetronomeSync(
             return;
           }
           if (res.ok && data.session) {
+            consecutiveFailuresRef.current = 0;
             if (typeof data.serverTime === 'number') {
-              recordClockSample(sendTime, data.serverTime);
+              recordClockSample(sendTime, data.serverTime, data.serverRecvTime);
             }
             setRemoteSession(data.session);
             setStatusBanner(null);
+            setReconnecting(false);
           } else if (!res.ok) {
-            setConnectionQuality('offline');
+            consecutiveFailuresRef.current += 1;
+            if (consecutiveFailuresRef.current >= 4) {
+              computedQualityRef.current = 'offline';
+              setConnectionQuality('offline');
+            } else if (consecutiveFailuresRef.current >= 2) {
+              computedQualityRef.current = 'unstable';
+              setConnectionQuality('unstable');
+            }
           }
         } catch {
-          setConnectionQuality('offline');
+          if (!manualDisconnectRef.current) {
+            consecutiveFailuresRef.current += 1;
+            if (consecutiveFailuresRef.current >= 4) {
+              computedQualityRef.current = 'offline';
+              setConnectionQuality('offline');
+            } else if (consecutiveFailuresRef.current >= 2) {
+              computedQualityRef.current = 'unstable';
+              setConnectionQuality('unstable');
+            }
+          }
         } finally {
+          window.clearTimeout(timeoutId);
+          if (httpAbortRef.current === controller) {
+            httpAbortRef.current = null;
+          }
           httpInFlightRef.current = false;
         }
       };
 
+      httpSyncNowRef.current = () => {
+        void syncOnce();
+      };
+
       void syncOnce();
-      for (let i = 1; i <= 3; i++) {
-        window.setTimeout(() => {
+      for (let i = 1; i <= 2; i++) {
+        const id = window.setTimeout(() => {
           void syncOnce();
-        }, i * 180);
+        }, i * 160);
+        burstTimersRef.current.push(id);
       }
       httpPollTimerRef.current = window.setInterval(() => {
         void syncOnce();
-      }, 750);
+      }, 900);
     },
     [cleanupSocket, recordClockSample]
   );
@@ -856,6 +982,8 @@ export function useMetronomeSync(
       cleanupSocket();
       manualDisconnectRef.current = false;
       transportModeRef.current = 'ws';
+      consecutiveFailuresRef.current = 0;
+      computedQualityRef.current = 'syncing';
       setConnectionQuality('syncing');
 
       let wsOpened = false;
@@ -893,9 +1021,11 @@ export function useMetronomeSync(
 
       ws.onopen = () => {
         wsOpened = true;
+        lastMessageAtRef.current = performance.now();
         window.clearTimeout(handshakeTimer);
         transportModeRef.current = 'ws';
         reconnectAttemptRef.current = 0;
+        consecutiveFailuresRef.current = 0;
         setReconnecting(false);
         ws.send(
           JSON.stringify({
@@ -909,13 +1039,26 @@ export function useMetronomeSync(
         // Burst of 5 rapid clock calibration pings
         clockSamplesRef.current = [];
         for (let i = 0; i < 5; i++) {
-          window.setTimeout(sendPing, i * 110);
+          const id = window.setTimeout(sendPing, i * 110);
+          burstTimersRef.current.push(id);
         }
 
-        pingTimerRef.current = window.setInterval(sendPing, 2000);
+        pingTimerRef.current = window.setInterval(() => {
+          if (performance.now() - lastMessageAtRef.current > 8500) {
+            // Half-open mobile socket detected (silent drop without close frame); force clean reconnect
+            try {
+              ws.close();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          sendPing();
+        }, 2000);
       };
 
       ws.onmessage = (event) => {
+        lastMessageAtRef.current = performance.now();
         let msg: Record<string, unknown>;
         try {
           msg = JSON.parse(event.data as string) as Record<string, unknown>;
@@ -924,7 +1067,11 @@ export function useMetronomeSync(
         }
 
         if (msg.type === 'clock:pong') {
-          const stats = recordClockSample(Number(msg.clientSendTime), Number(msg.serverTime));
+          const stats = recordClockSample(
+            Number(msg.clientSendTime),
+            Number(msg.serverTime),
+            typeof msg.serverRecvTime === 'number' ? msg.serverRecvTime : undefined
+          );
           if (stats && (stats.sampleCount % 3 === 0 || stats.sampleCount === 2)) {
             sendWs({ type: 'client:metrics', latencyMs: stats.oneWay, status: stats.quality });
           }
@@ -986,6 +1133,7 @@ export function useMetronomeSync(
 
       ws.onclose = () => {
         window.clearTimeout(handshakeTimer);
+        clearBurstTimers();
         if (pingTimerRef.current) {
           clearInterval(pingTimerRef.current);
           pingTimerRef.current = null;
@@ -999,11 +1147,11 @@ export function useMetronomeSync(
           return;
         }
 
-        setConnectionQuality('offline');
-        setReconnecting(true);
         const attempt = reconnectAttemptRef.current;
         reconnectAttemptRef.current = attempt + 1;
-        const delay = Math.min(5000, 800 * Math.pow(1.5, attempt));
+        setReconnecting(true);
+        setConnectionQuality(attempt === 0 ? 'syncing' : 'offline');
+        const delay = Math.min(5000, attempt === 0 ? 350 : 800 * Math.pow(1.5, attempt));
         reconnectTimerRef.current = window.setTimeout(() => {
           if (credsRef.current && !manualDisconnectRef.current) {
             connectWebSocket(credsRef.current);
@@ -1011,8 +1159,45 @@ export function useMetronomeSync(
         }, delay);
       };
     },
-    [cleanupSocket, recordClockSample, sendWs, startHttpSync]
+    [cleanupSocket, clearBurstTimers, recordClockSample, sendWs, startHttpSync]
   );
+
+  // Immediately re-calibrate clock offset when returning from device lock or regaining network
+  useEffect(() => {
+    const triggerFastResync = () => {
+      if (!credsRef.current || manualDisconnectRef.current) return;
+      if (transportModeRef.current === 'http') {
+        httpSyncNowRef.current?.();
+        return;
+      }
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        for (let i = 0; i < 3; i++) {
+          const id = window.setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'clock:ping', clientSendTime: performance.now() }));
+            }
+          }, i * 120);
+          burstTimersRef.current.push(id);
+        }
+      } else {
+        connectWebSocket(credsRef.current);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerFastResync();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', triggerFastResync);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('online', triggerFastResync);
+    };
+  }, [connectWebSocket]);
 
   useEffect(() => {
     return () => {
@@ -1606,11 +1791,13 @@ export function useMetronomeSync(
 
   const previewVocalCount = useCallback(() => {
     audioEngine.previewVocalCount(
-      (activeSession.clickProfile.vocalVolume ?? 0.9) * activeSession.clickProfile.masterVolume
+      (activeSession.clickProfile.vocalVolume ?? 0.9) * activeSession.clickProfile.masterVolume,
+      activeSession.clickProfile.vocalStyle ?? 'auto'
     );
     setAudioSuspended(false);
   }, [
     activeSession.clickProfile.masterVolume,
+    activeSession.clickProfile.vocalStyle,
     activeSession.clickProfile.vocalVolume,
   ]);
 

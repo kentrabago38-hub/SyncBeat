@@ -1,3 +1,5 @@
+import { VocalVoiceStyle } from '../types/metronome';
+
 const NUMBER_TOKENS: Record<number, string> = {
   1: 'one',
   2: 'two',
@@ -168,6 +170,7 @@ export interface ScheduleVocalOptions {
   isSubdivision?: boolean;
   subdivisionsPerBeat?: number;
   pitchBoost?: number;
+  vocalStyle?: VocalVoiceStyle;
   destination?: AudioNode;
 }
 
@@ -224,13 +227,27 @@ export class AudioVocalizer {
     }
   }
 
-  public preloadStandardCounts(ctx: AudioContext): void {
+  private resolveStyle(
+    vocalStyle: VocalVoiceStyle | undefined,
+    bpm: number,
+    subdivisionsPerBeat: number
+  ): 'natural' | 'studio' {
+    if (vocalStyle === 'natural') return 'natural';
+    if (vocalStyle === 'studio') return 'studio';
+    return subdivisionsPerBeat > 1 || bpm >= 115 ? 'studio' : 'natural';
+  }
+
+  public preloadStandardCounts(
+    ctx: AudioContext,
+    vocalStyle: VocalVoiceStyle = 'natural'
+  ): void {
+    const resolved: 'natural' | 'studio' = vocalStyle === 'studio' ? 'studio' : 'natural';
     for (const num of [1, 2, 3, 4, 5, 6, 7, 8]) {
-      this.getOrCreateBuffer(ctx, this.getBeatToken(num));
+      this.getOrCreateBuffer(ctx, this.getBeatToken(num), resolved);
     }
-    this.getOrCreateBuffer(ctx, 'and');
-    this.getOrCreateBuffer(ctx, 'e');
-    this.getOrCreateBuffer(ctx, 'a');
+    this.getOrCreateBuffer(ctx, 'and', resolved);
+    this.getOrCreateBuffer(ctx, 'e', resolved);
+    this.getOrCreateBuffer(ctx, 'a', resolved);
   }
 
   public scheduleBeatCount(
@@ -256,11 +273,13 @@ export class AudioVocalizer {
       isSubdivision = false,
       subdivisionsPerBeat = 1,
       pitchBoost,
+      vocalStyle = 'auto',
       destination,
     } = options;
     if (volume <= 0.005) return;
 
-    const buffer = this.getOrCreateBuffer(ctx, token);
+    const resolvedStyle = this.resolveStyle(vocalStyle, bpm, subdivisionsPerBeat);
+    const buffer = this.getOrCreateBuffer(ctx, token, resolvedStyle);
     const source = ctx.createBufferSource();
     source.buffer = buffer;
 
@@ -272,19 +291,19 @@ export class AudioVocalizer {
         ? Math.min(1.24, Math.max(1.0, buffer.duration / (slotSec * 0.88)))
         : 1.0;
 
-    const baseRate = pitchBoost ?? (isAccent ? 1.055 : isSubdivision ? 1.02 : 1.0);
+    const baseRate = pitchBoost ?? (isAccent ? 1.045 : isSubdivision ? 1.02 : 1.0);
     const rate = baseRate * tempoFitBoost;
     source.playbackRate.setValueAtTime(rate, when);
 
     const effectiveBufferDur = buffer.duration / rate;
-    const capRatio = subDiv > 1 ? 0.91 : isSubdivision ? 0.42 : 0.78;
+    const capRatio = subDiv > 1 ? 0.93 : isSubdivision ? 0.54 : 0.86;
     const maxPlaySec = Math.max(0.045, Math.min(effectiveBufferDur, slotSec * capRatio));
 
     const gainNode = ctx.createGain();
-    const scale = isSubdivision ? 0.64 : isAccent ? 1.05 : 0.96;
+    const scale = isSubdivision ? 0.64 : isAccent ? 1.04 : 0.96;
     const level = Math.min(0.92, Math.max(0.0001, volume * scale));
-    const fadeInEnd = when + Math.min(0.006, maxPlaySec * 0.18);
-    const fadeOutStart = when + Math.max(0.016, maxPlaySec - 0.022);
+    const fadeInEnd = when + Math.min(0.007, maxPlaySec * 0.18);
+    const fadeOutStart = when + Math.max(0.016, maxPlaySec - 0.026);
     const fadeOutEnd = when + maxPlaySec;
 
     gainNode.gain.setValueAtTime(0, when);
@@ -332,35 +351,48 @@ export class AudioVocalizer {
     ctx: AudioContext,
     volume = 0.9,
     bpm = 120,
-    destination?: AudioNode
+    destination?: AudioNode,
+    vocalStyle: VocalVoiceStyle = 'auto'
   ): void {
     this.stopAll(ctx);
-    this.preloadStandardCounts(ctx);
+    const resolvedStyle = this.resolveStyle(vocalStyle, bpm, 1);
+    this.preloadStandardCounts(ctx, resolvedStyle);
     this.scheduleBarCountdown(ctx, 4, ctx.currentTime + 0.03, {
       volume,
       bpm,
+      vocalStyle,
       destination,
     });
   }
 
-  private getOrCreateBuffer(ctx: AudioContext, token: string): AudioBuffer {
+  private getOrCreateBuffer(
+    ctx: AudioContext,
+    token: string,
+    style: 'natural' | 'studio' = 'natural'
+  ): AudioBuffer {
     if (this.cachedSampleRate !== ctx.sampleRate) {
       this.bufferCache.clear();
       this.cachedSampleRate = ctx.sampleRate;
     }
 
-    const key = token.toLowerCase();
+    const cleanToken = token.toLowerCase();
+    const key = `${cleanToken}:${style}`;
     const existing = this.bufferCache.get(key);
     if (existing) return existing;
 
-    const frames = VOCAL_RECIPES[key] ?? VOCAL_RECIPES.one;
-    const buffer = this.renderCascadeVocalBuffer(ctx, frames);
+    const frames = VOCAL_RECIPES[cleanToken] ?? VOCAL_RECIPES.one;
+    const buffer = this.renderCascadeVocalBuffer(ctx, frames, style);
     this.bufferCache.set(key, buffer);
     return buffer;
   }
 
-  private renderCascadeVocalBuffer(ctx: AudioContext, frames: FormantFrame[]): AudioBuffer {
+  private renderCascadeVocalBuffer(
+    ctx: AudioContext,
+    frames: FormantFrame[],
+    style: 'natural' | 'studio'
+  ): AudioBuffer {
     const sr = ctx.sampleRate;
+    const isNatural = style === 'natural';
     const activeDur = frames.reduce((acc, f) => acc + f.durSec, 0);
     const activeSamples = Math.max(1, Math.floor(sr * activeDur));
     // 14ms pure zero silence padding so tail never clips
@@ -369,8 +401,8 @@ export class AudioVocalizer {
     const buffer = ctx.createBuffer(1, totalSamples, sr);
     const out = buffer.getChannelData(0);
 
-    // Warm studio baritone-tenor fundamental (~152 Hz) with subtle prosody arc
-    const basePitchHz = 152;
+    // Warm human fundamental: Natural (~136 Hz rehearsal baritone) vs Studio (~154 Hz stage cut)
+    const basePitchHz = isNatural ? 136 : 154;
     let phase = 0;
     let prevGlottal = 0;
     let cursor = 0;
@@ -379,15 +411,23 @@ export class AudioVocalizer {
     const f1State = makeState();
     const f2State = makeState();
     const f3State = makeState();
+    const f4State = makeState();
+    const chestState = makeState();
     const presenceState = makeState();
+    const consonantHp = makeState();
     const consonantBp = makeState();
     const hpState = makeState();
     const lpState = makeState();
 
+    // 1-pole glottal spectral tilt state (-6dB/oct vocal fold warmth)
+    const glottalTiltCutoff = isNatural ? 880 : 1160;
+    const tiltCoeff = Math.exp((-2 * Math.PI * glottalTiltCutoff) / sr);
+    let tiltY = 0;
+
     // Normalized bandpass resonator (0dB peak gain at resonance center)
     const stepResonator = (state: BiquadState, x: number, freq: number, bwHz: number): number => {
       const clampedFreq = Math.min(sr * 0.43, Math.max(90, freq));
-      const q = Math.max(1.4, clampedFreq / Math.max(40, bwHz));
+      const q = Math.max(1.3, clampedFreq / Math.max(40, bwHz));
       const w0 = (2 * Math.PI * clampedFreq) / sr;
       const sinW0 = Math.sin(w0);
       const cosW0 = Math.cos(w0);
@@ -401,7 +441,7 @@ export class AudioVocalizer {
       return y;
     };
 
-    // Peaking EQ filter (+dB presence boost around 2.6kHz for speech intelligibility)
+    // Peaking EQ filter for chest warmth (~205Hz) & speech presence (~2.6kHz)
     const stepPeaking = (state: BiquadState, x: number, freq: number, q: number, gainDb: number): number => {
       const A = Math.pow(10, gainDb / 40);
       const w0 = (2 * Math.PI * Math.min(sr * 0.43, freq)) / sr;
@@ -460,10 +500,10 @@ export class AudioVocalizer {
       return y;
     };
 
-    // Rosenberg glottal pulse (0 <= p < 1) -> differentiated for natural vocal lip radiation (+6dB/oct pre-emphasis)
+    // Softened Rosenberg glottal pulse (0 <= p < 1) for rounder, less buzzy vocal fold closure
     const sampleRosenbergGlottal = (p: number): number => {
-      const openPhase = 0.42;
-      const closePhase = 0.18;
+      const openPhase = isNatural ? 0.48 : 0.45;
+      const closePhase = isNatural ? 0.21 : 0.19;
       if (p < openPhase) {
         return 0.5 * (1 - Math.cos((Math.PI * p) / openPhase));
       }
@@ -472,6 +512,15 @@ export class AudioVocalizer {
       }
       return 0;
     };
+
+    const bw1 = isNatural ? 92 : 84;
+    const bw2 = isNatural ? 136 : 122;
+    const bw3 = isNatural ? 195 : 175;
+    const bw4 = isNatural ? 275 : 245;
+    const chestGainDb = isNatural ? 2.6 : 1.4;
+    const presenceFreq = isNatural ? 2550 : 2750;
+    const presenceGainDb = isNatural ? 2.2 : 3.6;
+    const outputLowpassHz = isNatural ? 5400 : 6400;
 
     let pinkNoise = 0;
 
@@ -505,6 +554,7 @@ export class AudioVocalizer {
         const f1 = frame.f1 + (next.f1 - frame.f1) * s;
         const f2 = frame.f2 + (next.f2 - frame.f2) * s;
         const f3 = frame.f3 + (next.f3 - frame.f3) * s;
+        const f4 = Math.min(3900, Math.max(3150, (isNatural ? 3420 : 3560) + (f3 - 2400) * 0.25));
         const pitchMul = startPitch + (endPitch - startPitch) * s;
         const voicedMix = startVoiced + (endVoiced - startVoiced) * s;
         const breathMix = startBreath + (endBreath - startBreath) * s;
@@ -513,53 +563,68 @@ export class AudioVocalizer {
         const noiseQ = startNoiseQ + (endNoiseQ - startNoiseQ) * s;
         const frameAmp = startAmp + (endAmp - startAmp) * s;
 
-        // Subtle natural vocal pitch contour across the word (~3% gentle fall toward tail)
+        // Expressive human prosody arc + subtle 0.28% organic micro-drift
         const progress = cursor / activeSamples;
-        const pitchContour = 1.03 - progress * 0.06;
+        const prosodyArc = isNatural
+          ? 0.99 + Math.sin(progress * Math.PI) * 0.048 - progress * 0.055
+          : 1.01 + Math.sin(progress * Math.PI) * 0.032 - progress * 0.04;
+        const microDrift = 1 + Math.sin((cursor / sr) * 29.0) * 0.0028;
 
         let glottalSource = 0;
         if (voicedMix > 0.001) {
-          const pitch = basePitchHz * pitchMul * pitchContour;
+          const pitch = basePitchHz * pitchMul * prosodyArc * microDrift;
           phase += pitch / sr;
           if (phase >= 1) phase -= 1;
 
-          // 2x oversampled glottal pulse differentiation removes digital aliasing / synth harshness
+          // 2x oversampled glottal pulse differentiation + natural glottal spectral tilt
           const gA = sampleRosenbergGlottal(phase);
           const pMid = (phase + (0.5 * pitch) / sr) % 1;
           const gB = sampleRosenbergGlottal(pMid);
           const diffA = gB - prevGlottal;
           const diffB = gA - gB;
           prevGlottal = gA;
-          const pulse = (diffA + diffB) * 3.8;
+          const rawPulse = (diffA + diffB) * 3.8;
 
-          // Subtle natural aspiration modulated slightly by vocal phase
-          const breathNoise = (Math.random() * 2 - 1) * breathMix * (0.65 + gA * 0.6);
-          glottalSource = (pulse + breathNoise) * voicedMix;
+          tiltY = (1 - tiltCoeff) * rawPulse + tiltCoeff * tiltY;
+
+          // Natural aspiration breath modulated by open glottis phase
+          const breathLevel = breathMix * (isNatural ? 1.15 : 0.85);
+          const breathNoise = (Math.random() * 2 - 1) * breathLevel * (0.65 + gA * 0.65);
+          glottalSource = (tiltY + breathNoise) * voicedMix;
         }
 
-        // Cascade + weighted parallel formant sum avoids hollow comb dips while keeping warm body
-        const v1 = stepResonator(f1State, glottalSource, f1, 75);
-        const v2 = stepResonator(f2State, v1 * 0.72 + glottalSource * 0.32, f2, 105);
-        const v3 = stepResonator(f3State, v2 * 0.62 + glottalSource * 0.14, f3, 155);
-        const vowelOut = v1 * 0.92 + v2 * 0.85 + v3 * 0.45;
+        // 4-formant cascade + weighted parallel sum eliminates metallic hollow dips
+        const v1 = stepResonator(f1State, glottalSource, f1, bw1);
+        const v2 = stepResonator(f2State, v1 * 0.72 + glottalSource * 0.34, f2, bw2);
+        const v3 = stepResonator(f3State, v2 * 0.58 + glottalSource * 0.16, f3, bw3);
+        const v4 = stepResonator(f4State, v3 * 0.45 + glottalSource * 0.08, f4, bw4);
+        const vowelOut = v1 * 0.96 + v2 * 0.82 + v3 * 0.42 + v4 * 0.22;
 
-        // Crisp shaped air excitation for consonants ('t', 'th', 'f', 's', 'k')
+        // Clean consonant air shaping: high-passed white noise for crisp 's'/'t'/'th', warm pink air for 'f'/'v'
         const w = Math.random() * 2 - 1;
-        pinkNoise = pinkNoise * 0.35 + w * 0.65;
-        const bwConsonant = Math.max(250, noiseFreq / Math.max(0.8, noiseQ));
-        const consonantOut = stepResonator(consonantBp, pinkNoise, noiseFreq, bwConsonant) * noiseAmp;
+        pinkNoise = pinkNoise * 0.38 + w * 0.62;
+        const brightAir = stepHighpass(consonantHp, w, 1500);
+        const exciterNoise = noiseFreq >= 2900 ? brightAir : pinkNoise;
+        const bwConsonant = Math.max(240, noiseFreq / Math.max(0.85, noiseQ));
+        const consonantScale = isNatural ? 0.86 : 1.0;
+        const consonantOut =
+          stepResonator(consonantBp, exciterNoise, noiseFreq, bwConsonant) * noiseAmp * consonantScale;
 
         let sample = (vowelOut + consonantOut) * frameAmp;
 
-        // Studio vocal presence (+3.5 dB @ 2.65 kHz) for crisp consonant/vowel diction in IEMs
-        sample = stepPeaking(presenceState, sample, 2650, 1.1, 3.5);
-        // Remove sub-125Hz chest mud & smooth >6.2kHz sibilance
-        sample = stepHighpass(hpState, sample, 125);
-        sample = stepLowpass(lpState, sample, 6200);
+        // Warm chest body + calibrated vocal presence EQ
+        sample = stepPeaking(chestState, sample, 205, 0.85, chestGainDb);
+        sample = stepPeaking(presenceState, sample, presenceFreq, 0.95, presenceGainDb);
+        // Clean sub-105Hz rumble while keeping natural vocal fundamental warmth
+        sample = stepHighpass(hpState, sample, 105);
+        sample = stepLowpass(lpState, sample, outputLowpassHz);
 
-        // Smooth cosine fade-in (7ms) and fade-out (22ms) to pure silence
+        // Gentle analog tape warmth soft-saturation
+        sample = Math.tanh(sample * 1.15) / 1.15;
+
+        // Smooth cosine fade-in (7ms) and fade-out (24ms) to pure silence
         const attackSamples = sr * 0.007;
-        const releaseSamples = sr * 0.022;
+        const releaseSamples = sr * 0.024;
         const attackEnv =
           cursor < attackSamples ? 0.5 * (1 - Math.cos((Math.PI * cursor) / attackSamples)) : 1;
         const rem = activeSamples - 1 - cursor;
@@ -582,7 +647,7 @@ export class AudioVocalizer {
     }
     const rms = Math.sqrt(sumSq / Math.max(1, activeSamples));
     if (rms > 0.001 && maxAbs > 0.001) {
-      const targetGain = Math.min(0.86 / maxAbs, 0.24 / rms);
+      const targetGain = Math.min(0.85 / maxAbs, 0.23 / rms);
       for (let i = 0; i < activeSamples; i++) {
         out[i] *= targetGain;
       }

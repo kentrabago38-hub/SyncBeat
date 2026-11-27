@@ -614,6 +614,7 @@ async function startServer() {
 
   // HTTP state/clock synchronization fallback endpoint (mirrors /api/index.ts)
   app.post('/api/sessions/:code/sync', async (req, res) => {
+    const serverRecvTime = Date.now();
     const code = req.params.code.toUpperCase().trim();
     const { participantId, token, latencyMs, status } = req.body as {
       participantId?: string;
@@ -663,12 +664,14 @@ async function startServer() {
 
     res.json({
       session: session.state,
+      serverRecvTime,
       serverTime: Date.now(),
     });
   });
 
   // HTTP command fallback endpoint (mirrors WebSocket commands)
   app.post('/api/sessions/:code/command', async (req, res) => {
+    const serverRecvTime = Date.now();
     const code = req.params.code.toUpperCase().trim();
     const body = req.body as Record<string, unknown>;
     const participantId = typeof body.participantId === 'string' ? body.participantId : '';
@@ -863,7 +866,7 @@ async function startServer() {
             clientWs.send(payload);
           }
         }
-        res.json({ session: state, newSessionId: newId, serverTime: Date.now() });
+        res.json({ session: state, newSessionId: newId, serverRecvTime, serverTime: Date.now() });
         return;
       }
 
@@ -922,7 +925,7 @@ async function startServer() {
         }
         sessions.delete(state.sessionId);
         void deleteLiveSessionFromDb(state.sessionId).catch(() => {});
-        res.json({ ended: true, serverTime: Date.now() });
+        res.json({ ended: true, serverRecvTime, serverTime: Date.now() });
         return;
       }
 
@@ -932,7 +935,7 @@ async function startServer() {
     }
 
     broadcastState(session);
-    res.json({ session: state, serverTime: Date.now() });
+    res.json({ session: state, serverRecvTime, serverTime: Date.now() });
   });
 
   const server = http.createServer(app);
@@ -966,10 +969,12 @@ async function startServer() {
 
       // High-priority NTP clock sync ping
       if (type === 'clock:ping') {
+        const pingServerTime = Date.now();
         sendJson(ws, {
           type: 'clock:pong',
           clientSendTime: msg.clientSendTime,
-          serverTime: Date.now(),
+          serverRecvTime: pingServerTime,
+          serverTime: pingServerTime,
         });
         return;
       }
