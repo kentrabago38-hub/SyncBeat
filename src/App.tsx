@@ -36,6 +36,8 @@ const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
   hapticBeat: false,
   hapticAccentOnly: false,
   visualFlash: true,
+  stageFlash: false,
+  extendedRange: true,
 };
 
 function readInitialAccessibility(): AccessibilitySettings {
@@ -48,6 +50,8 @@ function readInitialAccessibility(): AccessibilitySettings {
       ...DEFAULT_ACCESSIBILITY,
       ...parsed,
       theme: parsed.theme === 'light' ? 'light' : 'dark',
+      stageFlash: Boolean(parsed.stageFlash),
+      extendedRange: parsed.extendedRange ?? true,
     };
   } catch {
     return DEFAULT_ACCESSIBILITY;
@@ -159,6 +163,8 @@ export default function App() {
         }
       } else if (e.key === 'f' || e.key === 'F') {
         setPerformanceMode((v) => !v);
+      } else if (e.key === 'v' || e.key === 'V') {
+        setAccessibility((prev) => ({ ...prev, stageFlash: !prev.stageFlash }));
       } else if (e.key === 'Escape' && performanceMode) {
         setPerformanceMode(false);
       }
@@ -178,6 +184,14 @@ export default function App() {
   const openPerformanceMode = useCallback(() => setPerformanceMode(true), []);
   const closePerformanceMode = useCallback(() => setPerformanceMode(false), []);
   const openSoundTab = useCallback(() => setActiveTab('sound'), []);
+  const toggleStageFlash = useCallback(
+    () => setAccessibility((prev) => ({ ...prev, stageFlash: !prev.stageFlash })),
+    []
+  );
+  const toggleExtendedRange = useCallback(
+    () => setAccessibility((prev) => ({ ...prev, extendedRange: !(prev.extendedRange ?? true) })),
+    []
+  );
   const handleUpdateClickProfile = useCallback(
     (patch: Partial<ClickProfile>) => sync.updateMetronome({ clickProfile: patch }),
     [sync]
@@ -253,6 +267,7 @@ export default function App() {
                 latencyMs={sync.latencyMs}
                 isWireless={sync.isWireless}
                 reconnecting={sync.reconnecting}
+                meshPeers={sync.meshStatus.connectedPeers}
               />
             </button>
             <PWAInstallButton />
@@ -379,7 +394,7 @@ export default function App() {
       )}
 
       {/* Main Content Workspace */}
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 pt-4 sm:pt-5 pb-20 md:pb-10">
+      <main className="relative z-10 mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 pt-4 sm:pt-5 pb-6 md:pb-8">
         {activeTab === 'metronome' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             <div className="lg:col-span-7 xl:col-span-8">
@@ -397,6 +412,7 @@ export default function App() {
                 tapBpmHistory={sync.tapBpmHistory}
                 onClearTapHistory={sync.clearTapBpmHistory}
                 onToggleLocalMute={sync.toggleLocalSelfMute}
+                onToggleStageFlash={toggleStageFlash}
                 onUnlockAudio={() => void sync.unlockAudio()}
                 onPlay={sync.play}
                 onPause={sync.pause}
@@ -420,6 +436,9 @@ export default function App() {
                 connectionQuality={sync.connectionQuality}
                 latencyMs={sync.latencyMs}
                 reconnecting={sync.reconnecting}
+                meshStatus={sync.meshStatus}
+                extendedRange={accessibility.extendedRange ?? true}
+                onToggleExtendedRange={toggleExtendedRange}
                 onCreateSession={sync.createSession}
                 onJoinSession={sync.joinSession}
                 onLeaveSession={sync.leaveSession}
@@ -438,6 +457,8 @@ export default function App() {
           <div className="max-w-5xl mx-auto">
             <SetlistManager
               session={sync.session}
+              timeline={sync.timeline}
+              getTimelineSnapshot={sync.getTimelineSnapshot}
               setlists={sync.setlists}
               isHost={sync.isHost}
               permissions={sync.permissions}
@@ -479,6 +500,9 @@ export default function App() {
               connectionQuality={sync.connectionQuality}
               latencyMs={sync.latencyMs}
               reconnecting={sync.reconnecting}
+              meshStatus={sync.meshStatus}
+              extendedRange={accessibility.extendedRange ?? true}
+              onToggleExtendedRange={toggleExtendedRange}
               onCreateSession={sync.createSession}
               onJoinSession={sync.joinSession}
               onLeaveSession={sync.leaveSession}
@@ -492,6 +516,12 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <footer className="relative z-10 border-t border-slate-200/70 dark:border-white/[0.06] pb-20 md:pb-5 pt-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 sm:px-6 text-xs text-slate-500 dark:text-zinc-400">
+          <span>Made by Jorich, 2026</span>
+        </div>
+      </footer>
 
       {/* Mobile Fixed Thumb-Zone Bottom Tab Bar (56px, <= 13% aggregate mobile sticky chrome) */}
       <nav
@@ -541,6 +571,7 @@ export default function App() {
           localSelfMuted={sync.localSelfMuted}
           audioSuspended={sync.audioSuspended}
           onToggleLocalMute={sync.toggleLocalSelfMute}
+          onToggleStageFlash={toggleStageFlash}
           onUnlockAudio={() => void sync.unlockAudio()}
           onPlay={sync.play}
           onPause={sync.pause}

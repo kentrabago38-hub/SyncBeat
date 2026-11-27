@@ -19,6 +19,7 @@ interface ConnectionBadgeProps {
   isWireless: boolean;
   reconnecting?: boolean;
   compact?: boolean;
+  meshPeers?: number;
 }
 
 function formatRemainingTime(seconds: number | null): string {
@@ -84,6 +85,7 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
   isWireless,
   reconnecting,
   compact = false,
+  meshPeers = 0,
 }) => {
   if (!isWireless) {
     return (
@@ -138,6 +140,17 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
         <>
           <span className="text-slate-300 dark:text-zinc-600" aria-hidden="true">·</span>
           <span className="font-mono-tabular text-slate-500 dark:text-zinc-400">{latencyMs} ms</span>
+        </>
+      )}
+      {!compact && meshPeers > 0 && (
+        <>
+          <span className="text-slate-300 dark:text-zinc-600" aria-hidden="true">·</span>
+          <span
+            className="font-mono-tabular font-medium text-emerald-600 dark:text-emerald-400"
+            title={`${meshPeers} direct peer-to-peer stage relay ${meshPeers === 1 ? 'link' : 'links'} active`}
+          >
+            Mesh {meshPeers}
+          </span>
         </>
       )}
       {!compact && <BatteryIndicator />}

@@ -12,6 +12,7 @@ import type {
   RemotePermissions,
   Setlist,
   SetlistItem,
+  StageSignalMessage,
   SubdivisionType,
   TimeSignature,
 } from '../src/types/metronome';
@@ -177,6 +178,7 @@ interface StoredSessionRecord {
   hostToken: string;
   participantTokens: Record<string, string>;
   kickedIds: string[];
+  pendingSignals?: Record<string, StageSignalMessage[]>;
   ended?: boolean;
 }
 
@@ -542,6 +544,14 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.get('/api/network-info', (_req, res) => {
+  res.json({
+    runtime: 'vercel-serverless',
+    port: null,
+    addresses: [],
+  });
+});
+
 app.get('/api/user/sync', (_req, res) => {
   res.json({ ok: true, library: null, sessionConfig: null });
 });
@@ -879,12 +889,21 @@ app.post('/api/sessions/:code/sync', async (req, res) => {
       }
     }
 
+    const queuedSignals = (record.pendingSignals?.[participantId] ?? []).filter(
+      (sig) => now - sig.createdAt < 45_000
+    );
+    if (record.pendingSignals && record.pendingSignals[participantId]) {
+      delete record.pendingSignals[participantId];
+      dirty = true;
+    }
+
     if (dirty) {
       await saveSessionRecord(code, record);
     }
 
     res.json({
       session: record.state,
+      signals: queuedSignals,
       serverRecvTime,
       serverTime: Date.now(),
     });
@@ -893,6 +912,70 @@ app.post('/api/sessions/:code/sync', async (req, res) => {
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Session sync error',
     });
+  }
+});
+
+app.post('/api/sessions/:code/signal', async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase().trim();
+    const body = normalizeObjectBody(req.body);
+    const participantId = typeof body.participantId === 'string' ? body.participantId : '';
+    const token = typeof body.token === 'string' ? body.token : '';
+    const toParticipantId = typeof body.toParticipantId === 'string' ? body.toParticipantId : '';
+    const kind = body.kind;
+
+    let record = await getSessionRecord(code);
+    if (!record && body.rehydrateState) {
+      record = tryBuildRehydratedRecord(code, participantId, token, body.rehydrateState);
+      if (record) {
+        await saveSessionRecord(code, record);
+      }
+    }
+    if (!record) {
+      res.status(404).json({
+        error: 'Session not found',
+        ended: false,
+        rehydrateRequired: !getRedisConfig(),
+      });
+      return;
+    }
+    if (record.ended) {
+      res.status(410).json({ error: 'Session ended by host', ended: true });
+      return;
+    }
+    if (!participantId || !token || record.participantTokens[participantId] !== token) {
+      res.status(401).json({ error: 'Unauthorized session token' });
+      return;
+    }
+    if (
+      !toParticipantId ||
+      (kind !== 'offer' && kind !== 'answer' && kind !== 'ice') ||
+      !record.state.participants.some((p) => p.id === toParticipantId)
+    ) {
+      res.status(400).json({ error: 'Invalid target peer or signal type' });
+      return;
+    }
+
+    if (!record.pendingSignals) record.pendingSignals = {};
+    const list = (record.pendingSignals[toParticipantId] ?? []).filter(
+      (sig) => Date.now() - sig.createdAt < 45_000
+    );
+    list.push({
+      id: crypto.randomUUID(),
+      fromParticipantId: participantId,
+      toParticipantId,
+      kind,
+      payload: body.payload,
+      createdAt: Date.now(),
+    });
+    if (list.length > 30) list.shift();
+    record.pendingSignals[toParticipantId] = list;
+    await saveSessionRecord(code, record);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error relaying WebRTC signal:', error);
+    res.status(500).json({ error: 'Signal relay error' });
   }
 });
 

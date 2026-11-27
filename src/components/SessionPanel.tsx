@@ -10,16 +10,18 @@ import {
   RefreshCw,
   Share2,
   Shield,
+  Signal,
   Smartphone,
   Unlock,
   UserMinus,
   Users,
   Volume2,
   VolumeX,
+  Wifi,
   X,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MUSICIAN_ROLES } from '../constants/metronomeData';
 import {
   ConnectionQuality,
@@ -27,7 +29,14 @@ import {
   MusicianRole,
   Participant,
   RemotePermissions,
+  StageMeshStatus,
 } from '../types/metronome';
+import {
+  apiUrl,
+  getCustomSyncOrigin,
+  getEffectiveShareOrigin,
+  setCustomSyncOrigin,
+} from '../utils/syncConfig';
 import { ConnectionBadge } from './ConnectionBadge';
 import { SyncBeatLogo } from './SyncBeatLogo';
 
@@ -39,6 +48,9 @@ interface SessionPanelProps {
   connectionQuality: ConnectionQuality;
   latencyMs: number;
   reconnecting: boolean;
+  meshStatus?: StageMeshStatus;
+  extendedRange: boolean;
+  onToggleExtendedRange: () => void;
   onCreateSession: (opts: {
     name: string;
     hostName: string;
@@ -62,6 +74,13 @@ interface SessionPanelProps {
   compactSidebar?: boolean;
 }
 
+interface NetworkCandidate {
+  address: string;
+  iface: string;
+  url: string;
+  likelyHotspot: boolean;
+}
+
 export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
   session,
   isWireless,
@@ -70,6 +89,9 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
   connectionQuality,
   latencyMs,
   reconnecting,
+  meshStatus,
+  extendedRange,
+  onToggleExtendedRange,
   onCreateSession,
   onJoinSession,
   onLeaveSession,
@@ -96,11 +118,46 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
   const [error, setError] = useState<string | null>(null);
   const [copiedType, setCopiedType] = useState<'code' | 'link' | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showHotspotTools, setShowHotspotTools] = useState(false);
+  const [hotspotOriginInput, setHotspotOriginInput] = useState<string>(() => getCustomSyncOrigin());
+  const [savedOrigin, setSavedOrigin] = useState<string>(() => getCustomSyncOrigin());
+  const [networkCandidates, setNetworkCandidates] = useState<NetworkCandidate[]>([]);
 
-  const shareUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/join/${session.sessionId}`
-      : '';
+  useEffect(() => {
+    let active = true;
+    fetch(apiUrl('/api/network-info'))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { addresses?: NetworkCandidate[] } | null) => {
+        if (active && data && Array.isArray(data.addresses)) {
+          setNetworkCandidates(data.addresses);
+        }
+      })
+      .catch(() => {
+        // ignore if unreachable
+      });
+    return () => {
+      active = false;
+    };
+  }, [savedOrigin]);
+
+  const applyHotspotOrigin = (rawUrl: string | null) => {
+    if (!rawUrl || !rawUrl.trim()) {
+      setCustomSyncOrigin(null);
+      setSavedOrigin('');
+      setHotspotOriginInput('');
+      return;
+    }
+    let formatted = rawUrl.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(formatted)) {
+      formatted = `http://${formatted}`;
+    }
+    setCustomSyncOrigin(formatted);
+    setSavedOrigin(formatted);
+    setHotspotOriginInput(formatted);
+  };
+
+  const shareOrigin = savedOrigin || getEffectiveShareOrigin();
+  const shareUrl = shareOrigin ? `${shareOrigin}/join/${session.sessionId}` : '';
 
   const copyText = (text: string, type: 'code' | 'link') => {
     void navigator.clipboard?.writeText(text);
@@ -345,33 +402,107 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
           </button>
         </form>
 
-        {/* Mobile Install & Rehearsal Sharing Guide */}
+        {/* Stage Range, Mesh Relay & Hotspot Mode Card */}
         <div
-          className={`hc-surface studio-panel rounded-2xl border border-slate-200/90 dark:border-white/[0.08] p-4 space-y-2.5 ${
+          className={`hc-surface studio-panel rounded-2xl border border-slate-200/90 dark:border-white/[0.08] p-4 space-y-3 ${
             compactSidebar ? '' : 'md:col-span-2'
           }`}
         >
-          <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-900 dark:text-white">
-            <SyncBeatLogo variant="icon" className="w-7 h-7" />
-            <div className="flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>Install on Phone &amp; Share with Band</span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-white">
+              <Signal className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>Extended Stage Range &amp; Hotspot Mode</span>
             </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={extendedRange}
+              onClick={onToggleExtendedRange}
+              className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                extendedRange
+                  ? 'border-emerald-500/45 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                  : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-400'
+              }`}
+            >
+              {extendedRange ? 'Mesh + Long-Range: On' : 'Standard Range'}
+            </button>
           </div>
-          <ol className="space-y-1.5 text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
-            <li>
-              <strong className="text-slate-800 dark:text-zinc-200">1. Install on your phone:</strong>{' '}
-              Open this URL in <span className="text-slate-800 dark:text-zinc-200">Safari (iPhone)</span> →
-              Share → <span className="text-slate-800 dark:text-zinc-200">Add to Home Screen</span>, or in{' '}
-              <span className="text-slate-800 dark:text-zinc-200">Chrome (Android)</span> → Menu →{' '}
-              <span className="text-slate-800 dark:text-zinc-200">Install App</span>.
-            </li>
-            <li>
-              <strong className="text-slate-800 dark:text-zinc-200">2. Share with musicians:</strong> Tap{' '}
-              <span className="text-amber-600 dark:text-amber-400">Create Session</span> above to generate
-              a live QR code and 5-character join code for rehearsals &amp; live stage use.
-            </li>
-          </ol>
+
+          <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+            Scattered stage setups automatically link bandmate devices via direct peer-to-peer WebRTC relays to bridge weak Wi-Fi spots. No venue Wi-Fi? Turn on one phone&apos;s <strong className="text-slate-700 dark:text-zinc-200">Mobile Hotspot</strong> and connect everyone onto it.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowHotspotTools((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-200 dark:hover:bg-white/10"
+            >
+              <Wifi className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>{showHotspotTools ? 'Hide Hotspot / LAN Host' : 'Configure Hotspot / LAN Host'}</span>
+            </button>
+            {savedOrigin && (
+              <span className="font-mono-tabular text-[11px] text-emerald-600 dark:text-emerald-400 truncate max-w-full">
+                Active Host: {savedOrigin}
+              </span>
+            )}
+          </div>
+
+          {showHotspotTools && (
+            <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-white/[0.06]">
+              {networkCandidates.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500 dark:text-zinc-400">Detected Hotspot / LAN:</span>
+                  {networkCandidates.map((cand) => (
+                    <button
+                      key={cand.url}
+                      type="button"
+                      onClick={() => applyHotspotOrigin(cand.url)}
+                      className={`rounded-lg border px-2.5 py-1 font-mono-tabular text-[11px] transition ${
+                        savedOrigin === cand.url
+                          ? 'border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-amber-500/40 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-zinc-300'
+                      }`}
+                    >
+                      {cand.likelyHotspot ? `Hotspot · ${cand.address}` : cand.address}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={hotspotOriginInput}
+                  onChange={(e) => setHotspotOriginInput(e.target.value)}
+                  placeholder="Hotspot / LAN URL (e.g. http://192.168.43.1:3000)"
+                  className="flex-1 min-w-[200px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono-tabular text-xs text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => applyHotspotOrigin(hotspotOriginInput)}
+                  className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+                >
+                  Use Host
+                </button>
+                {savedOrigin && (
+                  <button
+                    type="button"
+                    onClick={() => applyHotspotOrigin(null)}
+                    className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="pt-1 flex items-start gap-2 text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+            <Smartphone className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <span>
+              Install SyncBeat via Safari Share → Add to Home Screen or Chrome Menu → Install App for locked screen wake-lock &amp; stage performance.
+            </span>
+          </div>
         </div>
       </div>
     );
@@ -390,6 +521,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
                 latencyMs={latencyMs}
                 isWireless={true}
                 reconnecting={reconnecting}
+                meshPeers={meshStatus?.connectedPeers ?? 0}
               />
               {session.isLocked && (
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
@@ -500,37 +632,128 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
           </div>
         </div>
 
-        {/* Host Security Controls */}
-        {isHost && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onUpdateSessionMeta({ isLocked: !session.isLocked })}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10"
-            >
-              {session.isLocked ? (
-                <>
-                  <Unlock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Unlock Session</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Lock Session</span>
-                </>
-              )}
-            </button>
+        {/* Stage Range, Mesh Relay & Hotspot Controls */}
+        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/[0.06] space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-slate-600 dark:text-zinc-300">
+              <Signal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="font-medium">
+                {meshStatus?.enabled
+                  ? meshStatus.connectedPeers > 0
+                    ? `Stage Mesh: ${meshStatus.connectedPeers} peer ${
+                        meshStatus.connectedPeers === 1 ? 'relay' : 'relays'
+                      }${meshStatus.avgMeshLatencyMs !== null ? ` · ${meshStatus.avgMeshLatencyMs} ms P2P` : ''}`
+                    : 'Extended Stage Range Active · Waiting for peers'
+                  : 'Standard Stage Range'}
+              </span>
+            </div>
 
-            <button
-              type="button"
-              onClick={onRegenerateCode}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>New Join Code</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onToggleExtendedRange}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                  extendedRange
+                    ? 'border-emerald-500/45 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-400'
+                }`}
+              >
+                {extendedRange ? 'Range Boost: On' : 'Range Boost: Off'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowHotspotTools((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10"
+              >
+                <Wifi className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                <span>Hotspot QR</span>
+              </button>
+            </div>
           </div>
-        )}
+
+          {showHotspotTools && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 dark:border-white/[0.06] dark:bg-[#0D0F14] p-3 space-y-2">
+              <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                No venue Wi-Fi? Connect musicians to one phone&apos;s Personal Hotspot and select its IP/URL below so the QR code shares directly over the hotspot.
+              </p>
+              {networkCandidates.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {networkCandidates.map((cand) => (
+                    <button
+                      key={cand.url}
+                      type="button"
+                      onClick={() => applyHotspotOrigin(cand.url)}
+                      className={`rounded-lg border px-2.5 py-1 font-mono-tabular text-[11px] transition ${
+                        savedOrigin === cand.url
+                          ? 'border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-amber-500/40 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300'
+                      }`}
+                    >
+                      {cand.likelyHotspot ? `Hotspot · ${cand.address}` : cand.address}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={hotspotOriginInput}
+                  onChange={(e) => setHotspotOriginInput(e.target.value)}
+                  placeholder="http://192.168.43.1:3000"
+                  className="flex-1 min-w-[180px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono-tabular text-xs text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => applyHotspotOrigin(hotspotOriginInput)}
+                  className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+                >
+                  Update QR
+                </button>
+                {savedOrigin && (
+                  <button
+                    type="button"
+                    onClick={() => applyHotspotOrigin(null)}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300"
+                  >
+                    Default
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Host Security Controls */}
+          {isHost && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => onUpdateSessionMeta({ isLocked: !session.isLocked })}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10"
+              >
+                {session.isLocked ? (
+                  <>
+                    <Unlock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Unlock Session</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Lock Session</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={onRegenerateCode}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>New Join Code</span>
+              </button>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Connected Musicians Roster */}

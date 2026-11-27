@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import express from 'express';
 import http from 'http';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -38,6 +39,7 @@ import {
   RemotePermissions,
   Setlist,
   SetlistItem,
+  StageSignalMessage,
   SubdivisionType,
   TimeSignature,
 } from './src/types/metronome.ts';
@@ -52,6 +54,7 @@ interface ServerSession {
   participantTokens: Map<string, string>;
   kickedIds: Set<string>;
   sockets: Map<string, WebSocket>;
+  pendingSignals: Map<string, StageSignalMessage[]>;
   automationTimer: NodeJS.Timeout | null;
 }
 
@@ -105,6 +108,7 @@ async function getOrHydrateSession(code: string, forceRefresh = false): Promise<
       participantTokens: tokenMap,
       kickedIds: new Set(dbRecord.kickedIds || []),
       sockets: new Map(),
+      pendingSignals: new Map(),
       automationTimer: null,
     };
     sessions.set(clean, hydrated);
@@ -303,6 +307,46 @@ async function startServer() {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, runtime: 'node-ws', serverTime: Date.now(), activeSessions: sessions.size });
+  });
+
+  app.get('/api/network-info', (req, res) => {
+    const port = Number(process.env.PORT) || 3000;
+    const reqProto =
+      typeof req.headers['x-forwarded-proto'] === 'string'
+        ? req.headers['x-forwarded-proto'].split(',')[0].trim()
+        : req.protocol || 'http';
+    const interfaces = os.networkInterfaces();
+    const candidates: Array<{ address: string; iface: string; url: string; likelyHotspot: boolean }> = [];
+
+    for (const [iface, entries] of Object.entries(interfaces)) {
+      if (!entries) continue;
+      for (const entry of entries) {
+        if (entry.family !== 'IPv4' || entry.internal) continue;
+        const addr = entry.address;
+        const likelyHotspot =
+          addr.startsWith('172.20.10.') ||
+          addr.startsWith('192.168.43.') ||
+          addr.startsWith('192.168.137.') ||
+          /ap|hotspot|wlan|p2p/i.test(iface);
+        const portSuffix =
+          (reqProto === 'https' && port === 443) || (reqProto === 'http' && port === 80)
+            ? ''
+            : `:${port}`;
+        candidates.push({
+          address: addr,
+          iface,
+          url: `${reqProto}://${addr}${portSuffix}`,
+          likelyHotspot,
+        });
+      }
+    }
+
+    candidates.sort((a, b) => Number(b.likelyHotspot) - Number(a.likelyHotspot));
+    res.json({
+      runtime: 'node-ws',
+      port,
+      addresses: candidates,
+    });
   });
 
   // Authenticated Cloud SQL persistence routes (Firebase Auth required)
@@ -553,6 +597,7 @@ async function startServer() {
         participantTokens: new Map([[hostId, hostToken]]),
         kickedIds: new Set(),
         sockets: new Map(),
+        pendingSignals: new Map(),
         automationTimer: null,
       };
 
@@ -699,11 +744,72 @@ async function startServer() {
       broadcastState(session);
     }
 
+    const nowMs = Date.now();
+    const queued = (session.pendingSignals.get(participantId) ?? []).filter(
+      (sig) => nowMs - sig.createdAt < 45_000
+    );
+    if (queued.length > 0) {
+      session.pendingSignals.delete(participantId);
+    }
+
     res.json({
       session: session.state,
+      signals: queued,
       serverRecvTime,
       serverTime: Date.now(),
     });
+  });
+
+  // WebRTC Stage Mesh signaling relay endpoint (HTTP fallback when WS is unavailable)
+  app.post('/api/sessions/:code/signal', async (req, res) => {
+    const code = req.params.code.toUpperCase().trim();
+    const body = req.body as Record<string, unknown>;
+    const participantId = typeof body.participantId === 'string' ? body.participantId : '';
+    const token = typeof body.token === 'string' ? body.token : '';
+    const toParticipantId = typeof body.toParticipantId === 'string' ? body.toParticipantId : '';
+    const kind = body.kind;
+
+    let session = await getOrHydrateSession(code);
+    if (session && participantId && token && session.participantTokens.get(participantId) !== token) {
+      session = await getOrHydrateSession(code, true);
+    }
+    if (!session) {
+      res.status(404).json({ error: 'Session not found', ended: false });
+      return;
+    }
+    if (!participantId || !token || session.participantTokens.get(participantId) !== token) {
+      res.status(401).json({ error: 'Unauthorized session token' });
+      return;
+    }
+    if (
+      !toParticipantId ||
+      (kind !== 'offer' && kind !== 'answer' && kind !== 'ice') ||
+      !session.state.participants.some((p) => p.id === toParticipantId)
+    ) {
+      res.status(400).json({ error: 'Invalid target peer or signal type' });
+      return;
+    }
+
+    const signal: StageSignalMessage = {
+      id: crypto.randomUUID(),
+      fromParticipantId: participantId,
+      toParticipantId,
+      kind,
+      payload: body.payload,
+      createdAt: Date.now(),
+    };
+
+    const targetWs = session.sockets.get(toParticipantId);
+    if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+      sendJson(targetWs, { type: 'webrtc:signal', signal });
+    } else {
+      const list = session.pendingSignals.get(toParticipantId) ?? [];
+      list.push(signal);
+      if (list.length > 30) list.shift();
+      session.pendingSignals.set(toParticipantId, list);
+    }
+
+    res.json({ ok: true });
   });
 
   // HTTP command fallback endpoint (mirrors WebSocket commands)
@@ -1271,6 +1377,36 @@ async function startServer() {
               };
               broadcastState(session);
             }
+          }
+          break;
+        }
+
+        case 'webrtc:signal': {
+          const toParticipantId = typeof msg.toParticipantId === 'string' ? msg.toParticipantId : '';
+          const kind = msg.kind;
+          if (
+            !toParticipantId ||
+            (kind !== 'offer' && kind !== 'answer' && kind !== 'ice') ||
+            !state.participants.some((p) => p.id === toParticipantId)
+          ) {
+            return;
+          }
+          const signal: StageSignalMessage = {
+            id: crypto.randomUUID(),
+            fromParticipantId: boundParticipantId,
+            toParticipantId,
+            kind,
+            payload: msg.payload,
+            createdAt: now,
+          };
+          const targetWs = session.sockets.get(toParticipantId);
+          if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+            sendJson(targetWs, { type: 'webrtc:signal', signal });
+          } else {
+            const list = session.pendingSignals.get(toParticipantId) ?? [];
+            list.push(signal);
+            if (list.length > 30) list.shift();
+            session.pendingSignals.set(toParticipantId, list);
           }
           break;
         }

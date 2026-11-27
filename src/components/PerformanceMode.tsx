@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Pause, Play, Volume2, VolumeX, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pause, Play, Volume2, VolumeX, X, Zap } from 'lucide-react';
 import React from 'react';
 import { SUBDIVISIONS } from '../constants/metronomeData';
 import {
@@ -10,6 +10,7 @@ import {
 import { TimelineSnapshot } from '../utils/timeline';
 import { BeatVisualizer } from './BeatVisualizer';
 import { ConnectionBadge } from './ConnectionBadge';
+import { StageFlashBackdrop } from './StageFlashBackdrop';
 import { SyncBeatLogo } from './SyncBeatLogo';
 import { VocalCountdown } from './VocalCountdown';
 
@@ -32,6 +33,7 @@ interface PerformanceModeProps {
   onPause: () => void;
   onSelectSong: (index: number) => void;
   onClose: () => void;
+  onToggleStageFlash: () => void;
 }
 
 export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
@@ -53,6 +55,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
   onPause,
   onSelectSong,
   onClose,
+  onToggleStageFlash,
 }) => {
   const canControlTransport = isHost || permissions.playStop;
   const canControlSetlist = isHost || permissions.setlistNav;
@@ -65,10 +68,21 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
 
   const subMeta = SUBDIVISIONS.find((s) => s.id === session.subdivision);
 
+  const stageFlashEnabled = Boolean(accessibility.stageFlash);
+
   return (
     <div className="fixed inset-0 h-dvh z-50 flex flex-col justify-between bg-[#F4F5F8] text-slate-900 dark:bg-[#050608] dark:text-white p-4 sm:p-8 pt-safe pb-safe select-none overflow-hidden transition-colors duration-200">
+      <StageFlashBackdrop
+        enabled={stageFlashEnabled}
+        accentPattern={session.accentPattern}
+        timeline={timeline}
+        getTimelineSnapshot={getTimelineSnapshot}
+        reducedMotion={accessibility.reducedMotion}
+        theme={accessibility.theme ?? 'dark'}
+        scope="fullscreen"
+      />
       {/* Minimal Top Bar */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="relative z-10 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <SyncBeatLogo variant="mark" className="w-7 h-7" />
           <span className="font-display text-xs sm:text-sm font-bold tracking-wider uppercase text-slate-500 dark:text-zinc-400 truncate">
@@ -83,6 +97,21 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onToggleStageFlash}
+            aria-pressed={stageFlashEnabled}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold min-h-[44px] active:scale-95 transition whitespace-nowrap shrink-0 ${
+              stageFlashEnabled
+                ? 'border-amber-400 bg-amber-500 text-zinc-950'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10'
+            }`}
+            aria-label={stageFlashEnabled ? 'Disable Flash Mode' : 'Enable Flash Mode'}
+          >
+            <Zap className={`w-4 h-4 ${stageFlashEnabled ? 'fill-current' : ''}`} />
+            <span>Flash</span>
+          </button>
+
           <button
             type="button"
             onClick={onToggleLocalMute}
@@ -120,7 +149,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
       )}
 
       {/* Center Stage: Huge BPM & Beat Orbs */}
-      <div className="flex flex-col items-center justify-center text-center my-auto py-2">
+      <div className="relative z-10 flex flex-col items-center justify-center text-center my-auto py-2">
         <div className="font-display font-extrabold leading-none tracking-tight tabular-nums text-[clamp(4.75rem,18vw,11.5rem)] text-slate-900 dark:text-white">
           {Number.isInteger(session.bpm) ? session.bpm : session.bpm.toFixed(1)}
         </div>
@@ -159,7 +188,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
       </div>
 
       {/* Bottom Stage Cue + Minimal Transport */}
-      <div className="mx-auto w-full max-w-3xl flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200 dark:border-white/10 pt-4">
+      <div className="relative z-10 mx-auto w-full max-w-3xl flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200 dark:border-white/10 pt-4">
         <div className="text-center sm:text-left min-w-0 max-w-full">
           <div className="font-display text-xl sm:text-3xl font-bold text-slate-900 dark:text-white truncate">
             {activeSong ? activeSong.songName : session.name}

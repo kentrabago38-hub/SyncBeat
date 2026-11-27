@@ -168,4 +168,25 @@ export interface AccessibilitySettings {
   hapticBeat: boolean;
   hapticAccentOnly: boolean;
   visualFlash: boolean;
+  stageFlash?: boolean;
+  extendedRange?: boolean;
 }
+
+export interface StageSignalMessage {
+  id: string;
+  fromParticipantId: string;
+  toParticipantId: string;
+  kind: 'offer' | 'answer' | 'ice';
+  payload: unknown;
+  createdAt: number;
+}
+
+export interface StageMeshStatus {
+  enabled: boolean;
+  connectedPeers: number;
+  knownPeers: number;
+  relayedSyncActive: boolean;
+  avgMeshLatencyMs: number | null;
+  transportDetail: 'ws' | 'http' | 'mesh-relay';
+}
+

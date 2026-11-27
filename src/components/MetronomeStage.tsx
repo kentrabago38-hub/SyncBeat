@@ -11,6 +11,7 @@ import {
   Square,
   Volume2,
   VolumeX,
+  Zap,
 } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import {
@@ -34,6 +35,7 @@ import {
 import { TimelineSnapshot } from '../utils/timeline';
 import { BeatVisualizer } from './BeatVisualizer';
 import { D3BeatPulseVisualizer } from './D3BeatPulseVisualizer';
+import { StageFlashBackdrop } from './StageFlashBackdrop';
 import { VocalCountdown } from './VocalCountdown';
 
 interface MetronomeStageProps {
@@ -68,6 +70,7 @@ interface MetronomeStageProps {
   onApplyPreset: (preset: MetronomePreset) => void;
   onOpenPerformanceMode: () => void;
   onOpenSoundTab: () => void;
+  onToggleStageFlash: () => void;
 }
 
 export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
@@ -95,6 +98,7 @@ export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
   onApplyPreset,
   onOpenPerformanceMode,
   onOpenSoundTab,
+  onToggleStageFlash,
 }) => {
   const [showCustomTs, setShowCustomTs] = useState(false);
   const [tapFeedback, setTapFeedback] = useState(false);
@@ -172,10 +176,22 @@ export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
 
   const isLightTheme = accessibility.theme === 'light';
 
+  const stageFlashEnabled = Boolean(accessibility.stageFlash);
+
   return (
     <div className="space-y-4">
       {/* Primary Metronome Stage Surface */}
-      <section className="hc-surface studio-panel rounded-2xl border border-slate-200/90 dark:border-white/[0.08] p-4 sm:p-6">
+      <section className="hc-surface studio-panel relative overflow-hidden rounded-2xl border border-slate-200/90 dark:border-white/[0.08] p-4 sm:p-6">
+        <StageFlashBackdrop
+          enabled={stageFlashEnabled}
+          accentPattern={session.accentPattern}
+          timeline={timeline}
+          getTimelineSnapshot={getTimelineSnapshot}
+          reducedMotion={accessibility.reducedMotion}
+          theme={accessibility.theme ?? 'dark'}
+          scope="stage"
+        />
+        <div className="relative z-10">
         {/* Stage Header Row */}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -194,10 +210,38 @@ export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
                   </span>
                 </>
               )}
+              {stageFlashEnabled && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-medium text-amber-600 dark:text-amber-400">
+                    Screen Flash On
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onToggleStageFlash}
+              aria-pressed={stageFlashEnabled}
+              className={`studio-keycap inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition active:scale-95 whitespace-nowrap shrink-0 min-h-[44px] sm:min-h-[40px] ${
+                stageFlashEnabled
+                  ? 'border-amber-500/60 bg-amber-500 text-zinc-950 shadow-[0_2px_14px_rgba(245,158,11,0.35)]'
+                  : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10 dark:hover:text-white'
+              }`}
+              title={
+                stageFlashEnabled
+                  ? 'Disable screen background flash (Shortcut: V)'
+                  : 'Enable full screen background tempo flash for loud stages (Shortcut: V)'
+              }
+              aria-label={stageFlashEnabled ? 'Disable Flash Mode' : 'Enable Flash Mode'}
+            >
+              <Zap className={`w-3.5 h-3.5 ${stageFlashEnabled ? 'fill-current' : ''}`} />
+              <span>Flash</span>
+            </button>
+
             <button
               type="button"
               onClick={onToggleLocalMute}
@@ -223,7 +267,8 @@ export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
               title="Open fullscreen Performance Mode (Shortcut: F)"
             >
               <Maximize2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Stage View</span>
+              <span className="hidden sm:inline">Stage View</span>
+              <span className="sm:hidden">Stage</span>
             </button>
           </div>
         </div>
@@ -808,6 +853,7 @@ export const MetronomeStage: React.FC<MetronomeStageProps> = React.memo(({
             </div>
           </div>
         )}
+        </div>
       </section>
 
       {/* Active Setlist Song Cue Card */}

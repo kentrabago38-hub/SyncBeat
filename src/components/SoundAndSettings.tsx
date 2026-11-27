@@ -533,6 +533,11 @@ export const SoundAndSettings: React.FC<SoundAndSettingsProps> = React.memo(({
                 desc: 'Subtle glow on downbeat transitions',
               },
               {
+                key: 'stageFlash',
+                label: 'Screen Background Flash',
+                desc: 'Pulse full screen background with tempo for noisy stages',
+              },
+              {
                 key: 'largeText',
                 label: 'Large Text Mode',
                 desc: 'Scale BPM and primary stage typography',
@@ -600,6 +605,9 @@ export const SoundAndSettings: React.FC<SoundAndSettingsProps> = React.memo(({
           </span>
           <span>
             <strong className="font-mono-tabular text-slate-900 dark:text-zinc-200">F</strong> Stage View
+          </span>
+          <span>
+            <strong className="font-mono-tabular text-slate-900 dark:text-zinc-200">V</strong> Flash Mode
           </span>
         </div>
       </section>
