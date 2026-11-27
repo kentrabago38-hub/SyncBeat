@@ -2,27 +2,27 @@ import React from 'react';
 
 interface SyncBeatLogoProps {
   className?: string;
+  variant?: 'mark' | 'icon';
 }
 
-export const SyncBeatLogo: React.FC<SyncBeatLogoProps> = ({ className = 'w-7 h-7' }) => {
+const BRAND_LOGO_SRC = '/src/assets/images/syncbeat_brand_logo_1795790873281.jpg';
+const APP_ICON_SRC = '/src/assets/images/syncbeat_app_icon_1795790871705.jpg';
+
+export const SyncBeatLogo: React.FC<SyncBeatLogoProps> = ({
+  className = 'w-8 h-8',
+  variant = 'mark',
+}) => {
+  const src = variant === 'icon' ? APP_ICON_SRC : BRAND_LOGO_SRC;
   return (
-    <svg
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
+    <span
+      className={`relative inline-flex shrink-0 overflow-hidden rounded-xl border border-amber-500/25 bg-[#0A0B0E] shadow-[0_0_16px_rgba(245,158,11,0.16)] ${className}`}
     >
-      <rect width="48" height="48" rx="12" fill="#181B23" />
-      <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11.25" stroke="white" strokeOpacity="0.1" strokeWidth="1.5" />
-      {/* Wireless sync arcs */}
-      <path d="M15 13.5C20 9.5 28 9.5 33 13.5" stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round" strokeOpacity="0.5" />
-      <path d="M18.5 17C21.8 14.5 26.2 14.5 29.5 17" stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round" strokeOpacity="0.85" />
-      {/* Metronome body */}
-      <path d="M16 37L21.5 20.5H26.5L32 37H16Z" stroke="#F4F5F7" strokeWidth="2.2" strokeLinejoin="round" />
-      {/* Pendulum arm & weight */}
-      <line x1="24" y1="34" x2="30.5" y2="21.5" stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round" />
-      <circle cx="30.5" cy="21.5" r="2.6" fill="#F59E0B" />
-    </svg>
+      <img
+        src={src}
+        alt="SyncBeat"
+        referrerPolicy="no-referrer"
+        className="h-full w-full object-cover select-none"
+      />
+    </span>
   );
 };

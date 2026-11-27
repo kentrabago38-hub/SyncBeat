@@ -10,6 +10,7 @@ import {
 import { TimelineSnapshot } from '../utils/timeline';
 import { BeatVisualizer } from './BeatVisualizer';
 import { ConnectionBadge } from './ConnectionBadge';
+import { SyncBeatLogo } from './SyncBeatLogo';
 import { VocalCountdown } from './VocalCountdown';
 
 interface PerformanceModeProps {
@@ -67,6 +68,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
       {/* Minimal Top Bar */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
+          <SyncBeatLogo variant="mark" className="w-7 h-7" />
           <span className="font-display text-xs sm:text-sm font-bold tracking-wider uppercase text-zinc-400 truncate">
             Stage View
           </span>

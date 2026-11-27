@@ -26,6 +26,7 @@ import {
   RemotePermissions,
 } from '../types/metronome';
 import { ConnectionBadge } from './ConnectionBadge';
+import { SyncBeatLogo } from './SyncBeatLogo';
 
 interface SessionPanelProps {
   session: MetronomeSessionState;
@@ -76,9 +77,13 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
   onControlParticipant,
   compactSidebar = false,
 }) => {
-  const [sessionName, setSessionName] = useState('Sunday Worship Rehearsal');
-  const [hostName, setHostName] = useState('Worship Leader');
-  const [hostRole, setHostRole] = useState<MusicianRole>('Keyboard');
+  const [sessionName, setSessionName] = useState(() =>
+    session.name && session.name !== 'Solo Practice' ? session.name : 'Sunday Worship Rehearsal'
+  );
+  const [hostName, setHostName] = useState(() =>
+    session.hostName && session.hostName !== 'You' ? session.hostName : 'Worship Leader'
+  );
+  const [hostRole, setHostRole] = useState<MusicianRole>(() => session.hostRole ?? 'Keyboard');
 
   const [joinCode, setJoinCode] = useState('');
   const [joinName, setJoinName] = useState('');
@@ -299,9 +304,12 @@ export const SessionPanel: React.FC<SessionPanelProps> = React.memo(({
             compactSidebar ? '' : 'md:col-span-2'
           }`}
         >
-          <div className="flex items-center gap-2 text-xs font-semibold text-white">
-            <Smartphone className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Install on Phone &amp; Share with Band</span>
+          <div className="flex items-center gap-2.5 text-xs font-semibold text-white">
+            <SyncBeatLogo variant="icon" className="w-7 h-7" />
+            <div className="flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Install on Phone &amp; Share with Band</span>
+            </div>
           </div>
           <ol className="space-y-1.5 text-xs text-zinc-400 leading-relaxed">
             <li>

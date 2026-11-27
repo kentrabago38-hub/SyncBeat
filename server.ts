@@ -13,6 +13,20 @@ import {
   DEFAULT_SETLISTS,
 } from './src/constants/metronomeData';
 import {
+  deleteLiveSessionFromDb,
+  getLiveSessionFromDb,
+  getOrCreateUser,
+  getUserLibrary,
+  getUserSessionConfig,
+  pruneExpiredLiveSessions,
+  upsertLiveSessionInDb,
+  upsertUserLibrary,
+  upsertUserSessionConfig,
+} from './src/db/repository.ts';
+import type { PersistedSessionConfigPayload } from './src/db/schema.ts';
+import { adminAuth } from './src/lib/firebase-admin.ts';
+import { AuthRequest, requireAuth } from './src/middleware/auth.ts';
+import {
   BeatAccentType,
   ClickSoundId,
   CountInBars,
@@ -66,10 +80,53 @@ let libraryStore = loadStore();
 
 interface ServerSession {
   state: MetronomeSessionState;
+  hostUid: string | null;
   hostToken: string;
   participantTokens: Map<string, string>;
   sockets: Map<string, WebSocket>;
   automationTimer: NodeJS.Timeout | null;
+}
+
+function persistSessionToDb(session: ServerSession): void {
+  const participantTokens: Record<string, string> = {};
+  for (const [k, v] of session.participantTokens.entries()) {
+    participantTokens[k] = v;
+  }
+  void upsertLiveSessionInDb({
+    sessionId: session.state.sessionId,
+    hostUid: session.hostUid,
+    hostToken: session.hostToken,
+    state: session.state,
+    participantTokens,
+    kickedIds: [],
+    ended: false,
+  }).catch((err) => {
+    console.error('Failed to persist live session:', err);
+  });
+}
+
+async function getOrHydrateSession(code: string): Promise<ServerSession | null> {
+  const clean = code.toUpperCase().trim();
+  const cached = sessions.get(clean);
+  if (cached) return cached;
+
+  try {
+    const dbRecord = await getLiveSessionFromDb(clean);
+    if (!dbRecord || dbRecord.ended) return null;
+    const tokenMap = new Map<string, string>(Object.entries(dbRecord.participantTokens || {}));
+    const hydrated: ServerSession = {
+      state: dbRecord.state,
+      hostUid: dbRecord.hostUid,
+      hostToken: dbRecord.hostToken,
+      participantTokens: tokenMap,
+      sockets: new Map(),
+      automationTimer: null,
+    };
+    sessions.set(clean, hydrated);
+    return hydrated;
+  } catch {
+    return null;
+  }
 }
 
 const sessions = new Map<string, ServerSession>();
@@ -227,6 +284,7 @@ function broadcastState(session: ServerSession): void {
       ws.send(msg);
     }
   }
+  persistSessionToDb(session);
 }
 
 function canControl(
@@ -244,9 +302,81 @@ function canControl(
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+  app.use('/api', (req, res, next) => {
+    // Never emit wildcard CORS on authenticated /api/user/* routes
+    if (!req.path.startsWith('/user')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      if (req.method === 'OPTIONS') {
+        res.status(204).end();
+        return;
+      }
+    }
+    next();
+  });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, serverTime: Date.now(), activeSessions: sessions.size });
+    res.json({ ok: true, runtime: 'node-ws', serverTime: Date.now(), activeSessions: sessions.size });
+  });
+
+  // Authenticated Cloud SQL persistence routes (Firebase Auth required)
+  app.get('/api/user/sync', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user!.uid;
+      const email = req.user!.email || '';
+      const name = typeof req.user!.name === 'string' ? req.user!.name : null;
+      await getOrCreateUser(uid, email, name);
+      const [library, sessionConfig] = await Promise.all([
+        getUserLibrary(uid),
+        getUserSessionConfig(uid),
+      ]);
+      res.json({ ok: true, library, sessionConfig });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to sync user data',
+      });
+    }
+  });
+
+  app.put('/api/user/library', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user!.uid;
+      const email = req.user!.email || '';
+      const name = typeof req.user!.name === 'string' ? req.user!.name : null;
+      const { presets, setlists } = req.body as { presets?: unknown; setlists?: unknown };
+      if (!Array.isArray(presets) || !Array.isArray(setlists)) {
+        res.status(400).json({ error: 'Invalid presets or setlists payload' });
+        return;
+      }
+      await getOrCreateUser(uid, email, name);
+      await upsertUserLibrary(uid, presets as MetronomePreset[], setlists as Setlist[]);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to save library',
+      });
+    }
+  });
+
+  app.put('/api/user/session-config', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user!.uid;
+      const email = req.user!.email || '';
+      const name = typeof req.user!.name === 'string' ? req.user!.name : null;
+      const { config } = req.body as { config?: unknown };
+      if (!config || typeof config !== 'object') {
+        res.status(400).json({ error: 'Invalid session configuration payload' });
+        return;
+      }
+      await getOrCreateUser(uid, email, name);
+      await upsertUserSessionConfig(uid, config as PersistedSessionConfigPayload);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to save session configuration',
+      });
+    }
   });
 
   app.get('/api/library', (_req, res) => {
@@ -276,9 +406,9 @@ async function startServer() {
   });
 
   // Public session lookup for join prompt
-  app.get('/api/sessions/:code', (req, res) => {
+  app.get('/api/sessions/:code', async (req, res) => {
     const code = req.params.code.toUpperCase().trim();
-    const session = sessions.get(code);
+    const session = await getOrHydrateSession(code);
     if (!session) {
       res.status(404).json({ error: 'Session not found or expired' });
       return;
@@ -296,15 +426,27 @@ async function startServer() {
   });
 
   // Create new session (Host)
-  app.post('/api/sessions', (req, res) => {
+  app.post('/api/sessions', async (req, res) => {
+    let hostUid: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        hostUid = decoded.uid;
+      } catch {
+        // allow anonymous session hosting fallback if token invalid/absent
+      }
+    }
     const body = req.body as {
       name?: unknown;
       hostName?: unknown;
       hostRole?: unknown;
       bpm?: unknown;
       timeSignature?: TimeSignature;
+      accentPattern?: BeatAccentType[];
       subdivision?: SubdivisionType;
       clickSound?: ClickSoundId;
+      clickProfile?: Partial<MetronomeSessionState['clickProfile']>;
       countInBars?: CountInBars;
       setlist?: SetlistItem[];
       activeSetlistId?: string | null;
@@ -341,10 +483,29 @@ async function startServer() {
       joinedAt: now,
     };
 
-    const initialSetlist =
-      Array.isArray(body.setlist) && body.setlist.length > 0
-        ? body.setlist.slice(0, 100)
-        : DEFAULT_SETLISTS[0].items;
+    const initialSetlist = Array.isArray(body.setlist)
+      ? body.setlist.slice(0, 100)
+      : DEFAULT_SETLISTS[0].items;
+
+    const initialAccentPattern =
+      Array.isArray(body.accentPattern) && body.accentPattern.length === ts.numerator
+        ? (body.accentPattern.map((a) =>
+            a === 'accent' || a === 'normal' || a === 'mute' ? a : 'normal'
+          ) as BeatAccentType[])
+        : buildAccentPattern(ts);
+
+    const rawProfile =
+      body.clickProfile && typeof body.clickProfile === 'object' ? body.clickProfile : {};
+    const mergedProfile: MetronomeSessionState['clickProfile'] = {
+      ...DEFAULT_CLICK_PROFILE,
+      ...rawProfile,
+      normalSound: rawProfile.normalSound ?? body.clickSound ?? DEFAULT_CLICK_PROFILE.normalSound,
+    };
+
+    const clampedSongIndex =
+      initialSetlist.length > 0 && typeof body.activeSongIndex === 'number'
+        ? Math.max(0, Math.min(initialSetlist.length - 1, Math.round(body.activeSongIndex)))
+        : 0;
 
     const state: MetronomeSessionState = {
       sessionId,
@@ -355,12 +516,9 @@ async function startServer() {
       isLocked: false,
       bpm: clampBpm(body.bpm ?? 120),
       timeSignature: ts,
-      accentPattern: buildAccentPattern(ts),
+      accentPattern: initialAccentPattern,
       subdivision: body.subdivision ?? 'quarter',
-      clickProfile: {
-        ...DEFAULT_CLICK_PROFILE,
-        normalSound: body.clickSound ?? DEFAULT_CLICK_PROFILE.normalSound,
-      },
+      clickProfile: mergedProfile,
       countInBars: body.countInBars ?? 0,
       playback: {
         isPlaying: false,
@@ -369,8 +527,9 @@ async function startServer() {
         sequenceId: 1,
         activeSectionIndex: 0,
       },
-      activeSetlistId: body.activeSetlistId ?? DEFAULT_SETLISTS[0].id,
-      activeSongIndex: typeof body.activeSongIndex === 'number' ? body.activeSongIndex : 0,
+      activeSetlistId:
+        body.activeSetlistId !== undefined ? body.activeSetlistId : DEFAULT_SETLISTS[0].id,
+      activeSongIndex: clampedSongIndex,
       setlist: initialSetlist,
       participants: [hostParticipant],
       createdAt: now,
@@ -379,6 +538,7 @@ async function startServer() {
 
     const serverSession: ServerSession = {
       state,
+      hostUid,
       hostToken,
       participantTokens: new Map([[hostId, hostToken]]),
       sockets: new Map(),
@@ -386,6 +546,7 @@ async function startServer() {
     };
 
     sessions.set(sessionId, serverSession);
+    persistSessionToDb(serverSession);
     res.status(201).json({
       session: state,
       participantId: hostId,
@@ -395,9 +556,9 @@ async function startServer() {
   });
 
   // Join existing session (Participant)
-  app.post('/api/sessions/:code/join', (req, res) => {
+  app.post('/api/sessions/:code/join', async (req, res) => {
     const code = req.params.code.toUpperCase().trim();
-    const session = sessions.get(code);
+    const session = await getOrHydrateSession(code);
     if (!session) {
       res.status(404).json({ error: 'Session not found. Check the code and try again.' });
       return;
@@ -454,7 +615,7 @@ async function startServer() {
     let currentSessionRef: ServerSession | null = null;
     let boundParticipantId: string | null = null;
 
-    ws.on('message', (rawData) => {
+    ws.on('message', async (rawData) => {
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(rawData.toString()) as Record<string, unknown>;
@@ -480,7 +641,7 @@ async function startServer() {
         const participantId = typeof msg.participantId === 'string' ? msg.participantId : '';
         const token = typeof msg.token === 'string' ? msg.token : '';
 
-        const session = sessions.get(sessionId);
+        const session = await getOrHydrateSession(sessionId);
         if (!session) {
           sendJson(ws, { type: 'session:error', error: 'Session not found' });
           return;
@@ -501,11 +662,6 @@ async function startServer() {
           p.status = 'synced';
         }
 
-        sendJson(ws, {
-          type: 'session:state',
-          session: session.state,
-          serverTime: Date.now(),
-        });
         broadcastState(session);
         return;
       }
@@ -684,6 +840,8 @@ async function startServer() {
           sessions.delete(oldId);
           state.sessionId = newId;
           sessions.set(newId, session);
+          void deleteLiveSessionFromDb(oldId).catch(() => {});
+          persistSessionToDb(session);
           const payload = JSON.stringify({ type: 'session:codeChanged', newSessionId: newId, session: state });
           for (const clientWs of session.sockets.values()) {
             if (clientWs.readyState === WebSocket.OPEN) {
@@ -741,6 +899,7 @@ async function startServer() {
             }
           }
           sessions.delete(state.sessionId);
+          void deleteLiveSessionFromDb(state.sessionId).catch(() => {});
           break;
         }
       }
@@ -770,6 +929,7 @@ async function startServer() {
         sessions.delete(id);
       }
     }
+    void pruneExpiredLiveSessions(new Date(cutoff));
   }, 5 * 60 * 1000);
 
   if (process.env.NODE_ENV !== 'production') {

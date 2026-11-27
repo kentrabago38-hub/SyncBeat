@@ -1,7 +1,9 @@
-import { Radio, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { MUSICIAN_ROLES } from '../constants/metronomeData';
 import { MusicianRole, TimeSignature } from '../types/metronome';
+import { apiUrl } from '../utils/syncConfig';
+import { SyncBeatLogo } from './SyncBeatLogo';
 
 interface SessionPreview {
   sessionId: string;
@@ -36,7 +38,7 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
     let active = true;
     setLoading(true);
     setError(null);
-    fetch(`/api/sessions/${encodeURIComponent(code.toUpperCase())}`)
+    fetch(apiUrl(`/api/sessions/${encodeURIComponent(code.toUpperCase())}`))
       .then(async (res) => {
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -81,8 +83,8 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-4">
       <div className="scroll-touch pb-safe w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-white/10 bg-[#12141A] p-6 shadow-2xl">
         <div className="flex items-center justify-between">
-          <div className="inline-flex items-center gap-2 text-xs font-mono-tabular font-semibold uppercase tracking-wider text-amber-400">
-            <Radio className="w-4 h-4" />
+          <div className="inline-flex items-center gap-2.5 text-xs font-mono-tabular font-semibold uppercase tracking-wider text-amber-400">
+            <SyncBeatLogo variant="icon" className="w-7 h-7" />
             <span>Join Rehearsal · {code.toUpperCase()}</span>
           </div>
           <button

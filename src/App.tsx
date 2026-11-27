@@ -1,6 +1,8 @@
 import {
   Activity,
   ListMusic,
+  LogIn,
+  LogOut,
   Maximize2,
   Radio,
   Sliders,
@@ -17,6 +19,7 @@ import { SessionPanel } from './components/SessionPanel';
 import { SetlistManager } from './components/SetlistManager';
 import { SoundAndSettings } from './components/SoundAndSettings';
 import { SyncBeatLogo } from './components/SyncBeatLogo';
+import { useAuth } from './contexts/AuthContext';
 import { useMetronomeSync } from './hooks/useMetronomeSync';
 import { useWakeLock } from './hooks/useWakeLock';
 import { AccessibilitySettings, ClickProfile } from './types/metronome';
@@ -73,7 +76,8 @@ export default function App() {
     }
   }, [accessibility]);
 
-  const sync = useMetronomeSync(accessibility);
+  const auth = useAuth();
+  const sync = useMetronomeSync(accessibility, auth.idToken);
 
   // Keep screen awake during active metronome playback or Performance Mode
   useWakeLock(sync.timeline.isPlaying || performanceMode);
@@ -187,7 +191,7 @@ export default function App() {
             onClick={() => setActiveTab('metronome')}
             className="inline-flex items-center gap-2.5 whitespace-nowrap shrink-0 text-left"
           >
-            <SyncBeatLogo className="w-7 h-7" />
+            <SyncBeatLogo variant="mark" className="w-8 h-8" />
             <span className="font-display text-lg font-extrabold tracking-tight text-white">
               SyncBeat
             </span>
@@ -215,8 +219,8 @@ export default function App() {
             })}
           </nav>
 
-          {/* Zone 3: Connection Status + Primary Stage / Install */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Zone 3: Connection Status + Account + Primary Stage / Install */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               type="button"
               onClick={() => setActiveTab('session')}
@@ -231,6 +235,30 @@ export default function App() {
               />
             </button>
             <PWAInstallButton />
+            {!auth.loading &&
+              (auth.user ? (
+                <button
+                  type="button"
+                  onClick={() => void auth.signOut()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#181B23] px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors"
+                  title={`Signed in as ${auth.user.email ?? 'Musician'} — Click to sign out`}
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-300">
+                    {(auth.user.displayName || auth.user.email || 'M').slice(0, 1).toUpperCase()}
+                  </span>
+                  <LogOut className="w-3.5 h-3.5 text-zinc-400" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void auth.signInWithGoogle()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#181B23] px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors"
+                  title="Sign in with Google to save your sets across devices"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Sign in</span>
+                </button>
+              ))}
             <button
               type="button"
               onClick={() => setPerformanceMode(true)}

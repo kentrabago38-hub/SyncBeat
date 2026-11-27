@@ -1,13 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="112" fill="#0A0B0E"/>
-  <rect x="24" y="24" width="464" height="464" rx="92" stroke="#F59E0B" stroke-opacity="0.22" stroke-width="6"/>
-  <!-- Wireless pulse arcs -->
-  <path d="M164 134C215 92 297 92 348 134" stroke="#F59E0B" stroke-width="20" stroke-linecap="round" stroke-opacity="0.45"/>
-  <path d="M196 172C230 144 282 144 316 172" stroke="#F59E0B" stroke-width="20" stroke-linecap="round" stroke-opacity="0.75"/>
-  <!-- Metronome pyramid & pendulum -->
-  <path d="M174 396L234 198H278L338 396H174Z" fill="#181B23" stroke="#F4F5F7" stroke-width="16" stroke-linejoin="round"/>
-  <line x1="256" y1="364" x2="322" y2="218" stroke="#F59E0B" stroke-width="18" stroke-linecap="round"/>
-  <circle cx="322" cy="218" r="22" fill="#F59E0B"/>
-  <!-- Beat pulse line -->
-  <path d="M120 396H392" stroke="#F4F5F7" stroke-opacity="0.28" stroke-width="12" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="sb-gold" x1="170" y1="100" x2="340" y2="410" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="50%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </linearGradient>
+    <radialGradient id="sb-bg" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#1A1D26"/>
+      <stop offset="100%" stop-color="#0A0B0E"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sb-bg)"/>
+  <rect x="18" y="18" width="476" height="476" rx="96" stroke="#F59E0B" stroke-opacity="0.22" stroke-width="5"/>
+  <!-- Wireless sync arcs -->
+  <path d="M170 124C218 84 294 84 342 124" stroke="url(#sb-gold)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M200 158C232 132 280 132 312 158" stroke="url(#sb-gold)" stroke-width="18" stroke-linecap="round"/>
+  <!-- Metronome silhouette -->
+  <path d="M174 406L228 192H284L338 406H174Z" fill="#111318" stroke="url(#sb-gold)" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M188 340H324L336 400H176L188 340Z" fill="url(#sb-gold)"/>
+  <!-- Center slot & pulse dot -->
+  <line x1="256" y1="216" x2="256" y2="332" stroke="#F59E0B" stroke-opacity="0.45" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="256" cy="272" r="14" fill="#FDE68A"/>
+  <!-- Pendulum arm -->
+  <line x1="256" y1="342" x2="328" y2="206" stroke="#FBBF24" stroke-width="16" stroke-linecap="round"/>
 </svg>
