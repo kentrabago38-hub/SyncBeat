@@ -1,0 +1,6 @@
+{
+  "name": "SyncBeat",
+  "description": "Synchronized wireless metronome, setlist manager, and rehearsal clock for bands, worship teams, and live performers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
