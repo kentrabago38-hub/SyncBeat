@@ -83,6 +83,7 @@ interface ServerSession {
   hostUid: string | null;
   hostToken: string;
   participantTokens: Map<string, string>;
+  kickedIds: Set<string>;
   sockets: Map<string, WebSocket>;
   automationTimer: NodeJS.Timeout | null;
 }
@@ -98,7 +99,7 @@ function persistSessionToDb(session: ServerSession): void {
     hostToken: session.hostToken,
     state: session.state,
     participantTokens,
-    kickedIds: [],
+    kickedIds: Array.from(session.kickedIds),
     ended: false,
   }).catch((err) => {
     console.error('Failed to persist live session:', err);
@@ -119,6 +120,7 @@ async function getOrHydrateSession(code: string): Promise<ServerSession | null> 
       hostUid: dbRecord.hostUid,
       hostToken: dbRecord.hostToken,
       participantTokens: tokenMap,
+      kickedIds: new Set(dbRecord.kickedIds || []),
       sockets: new Map(),
       automationTimer: null,
     };
@@ -541,6 +543,7 @@ async function startServer() {
       hostUid,
       hostToken,
       participantTokens: new Map([[hostId, hostToken]]),
+      kickedIds: new Set(),
       sockets: new Map(),
       automationTimer: null,
     };
@@ -597,6 +600,329 @@ async function startServer() {
       token,
       serverTime: Date.now(),
     });
+  });
+
+  // HTTP state/clock synchronization fallback endpoint (mirrors /api/index.ts)
+  app.post('/api/sessions/:code/sync', async (req, res) => {
+    const code = req.params.code.toUpperCase().trim();
+    const { participantId, token, latencyMs, status } = req.body as {
+      participantId?: string;
+      token?: string;
+      latencyMs?: number;
+      status?: Participant['status'];
+    };
+
+    const session = await getOrHydrateSession(code);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found', ended: true });
+      return;
+    }
+    if (participantId && session.kickedIds.has(participantId)) {
+      res.status(403).json({ error: 'Removed by session host', kicked: true });
+      return;
+    }
+    if (!participantId || !token || session.participantTokens.get(participantId) !== token) {
+      res.status(401).json({ error: 'Unauthorized session token' });
+      return;
+    }
+
+    let dirty = false;
+    const p = session.state.participants.find((m) => m.id === participantId);
+    if (p) {
+      if (typeof latencyMs === 'number' && Number.isFinite(latencyMs)) {
+        const rounded = Math.max(0, Math.min(9999, Math.round(latencyMs)));
+        if (p.latencyMs !== rounded) {
+          p.latencyMs = rounded;
+          dirty = true;
+        }
+      }
+      if (status === 'synced' || status === 'syncing' || status === 'unstable' || status === 'offline') {
+        if (p.status !== status) {
+          p.status = status;
+          dirty = true;
+        }
+      } else if (p.status === 'syncing') {
+        p.status = 'synced';
+        dirty = true;
+      }
+    }
+
+    if (dirty) {
+      broadcastState(session);
+    }
+
+    res.json({
+      session: session.state,
+      serverTime: Date.now(),
+    });
+  });
+
+  // HTTP command fallback endpoint (mirrors WebSocket commands)
+  app.post('/api/sessions/:code/command', async (req, res) => {
+    const code = req.params.code.toUpperCase().trim();
+    const body = req.body as Record<string, unknown>;
+    const participantId = typeof body.participantId === 'string' ? body.participantId : '';
+    const token = typeof body.token === 'string' ? body.token : '';
+    const type = typeof body.type === 'string' ? body.type : '';
+
+    const session = await getOrHydrateSession(code);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found or ended', ended: true });
+      return;
+    }
+    if (!participantId || !token || session.participantTokens.get(participantId) !== token) {
+      res.status(401).json({ error: 'Unauthorized session token' });
+      return;
+    }
+
+    const state = session.state;
+    const now = Date.now();
+
+    switch (type) {
+      case 'transport:play': {
+        if (!canControl(session, participantId, 'playStop')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        state.playback.isPlaying = true;
+        state.playback.anchorServerMs = now + 110;
+        state.playback.sequenceId += 1;
+        scheduleNextAutomation(session);
+        break;
+      }
+
+      case 'transport:pause': {
+        if (!canControl(session, participantId, 'playStop')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        const currentBeats = getCurrentTotalBeats(state, now);
+        state.playback.isPlaying = false;
+        state.playback.anchorTotalBeats = currentBeats;
+        state.playback.anchorServerMs = now;
+        state.playback.sequenceId += 1;
+        clearAutomationTimer(session);
+        break;
+      }
+
+      case 'transport:stop': {
+        if (!canControl(session, participantId, 'playStop')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        state.playback.isPlaying = false;
+        state.playback.anchorTotalBeats = 0;
+        state.playback.anchorServerMs = now;
+        state.playback.activeSectionIndex = 0;
+        state.playback.sequenceId += 1;
+        clearAutomationTimer(session);
+        break;
+      }
+
+      case 'transport:restart': {
+        if (!canControl(session, participantId, 'playStop')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        state.playback.isPlaying = true;
+        state.playback.anchorTotalBeats = 0;
+        state.playback.anchorServerMs = now + 110;
+        state.playback.activeSectionIndex = 0;
+        state.playback.sequenceId += 1;
+        scheduleNextAutomation(session);
+        break;
+      }
+
+      case 'metronome:update': {
+        const patch = (body.patch ?? {}) as Record<string, unknown>;
+        const changingBpmOnly = Object.keys(patch).every((k) => k === 'bpm');
+        const allowed = changingBpmOnly
+          ? canControl(session, participantId, 'bpm')
+          : canControl(session, participantId, 'hostOnly');
+        if (!allowed) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+
+        if (patch.bpm !== undefined) {
+          const newBpm = clampBpm(patch.bpm);
+          if (state.playback.isPlaying) {
+            state.playback.anchorTotalBeats = getCurrentTotalBeats(state, now);
+            state.playback.anchorServerMs = now;
+          }
+          state.bpm = newBpm;
+          state.playback.sequenceId += 1;
+          scheduleNextAutomation(session);
+        }
+
+        if (patch.name !== undefined) {
+          state.name = sanitizeText(patch.name, 48, state.name);
+        }
+
+        if (patch.isLocked !== undefined && canControl(session, participantId, 'hostOnly')) {
+          state.isLocked = Boolean(patch.isLocked);
+        }
+
+        if (patch.timeSignature !== undefined) {
+          const ts = patch.timeSignature as TimeSignature;
+          if (ts && typeof ts.numerator === 'number') {
+            state.timeSignature = {
+              numerator: Math.max(1, Math.min(16, Math.round(ts.numerator))),
+              denominator: ([2, 4, 8, 16].includes(ts.denominator) ? ts.denominator : 4) as 2 | 4 | 8 | 16,
+              grouping: Array.isArray(ts.grouping) ? ts.grouping.slice(0, 8) : undefined,
+            };
+            if (!patch.accentPattern) {
+              state.accentPattern = buildAccentPattern(state.timeSignature);
+            }
+            state.playback.sequenceId += 1;
+          }
+        }
+
+        if (Array.isArray(patch.accentPattern)) {
+          state.accentPattern = patch.accentPattern
+            .slice(0, 16)
+            .map((a) => (a === 'accent' || a === 'normal' || a === 'mute' ? a : 'normal')) as BeatAccentType[];
+        }
+
+        if (typeof patch.subdivision === 'string') {
+          state.subdivision = patch.subdivision as SubdivisionType;
+          state.playback.sequenceId += 1;
+        }
+
+        if (patch.clickProfile && typeof patch.clickProfile === 'object') {
+          state.clickProfile = {
+            ...state.clickProfile,
+            ...(patch.clickProfile as Partial<MetronomeSessionState['clickProfile']>),
+          };
+        }
+
+        if (patch.countInBars !== undefined) {
+          const c = Number(patch.countInBars);
+          if ([0, 1, 2, 4, 8].includes(c)) {
+            state.countInBars = c as CountInBars;
+            state.playback.sequenceId += 1;
+          }
+        }
+        break;
+      }
+
+      case 'setlist:selectSong': {
+        if (!canControl(session, participantId, 'setlistNav')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        const idx = Number(body.index);
+        if (Number.isFinite(idx)) {
+          applySongSelection(session, idx, state.playback.isPlaying);
+        }
+        break;
+      }
+
+      case 'setlist:load': {
+        if (!canControl(session, participantId, 'hostOnly')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        if (Array.isArray(body.items)) {
+          state.setlist = (body.items as SetlistItem[]).slice(0, 100);
+          if (typeof body.setlistId === 'string' || body.setlistId === null) {
+            state.activeSetlistId = body.setlistId;
+          }
+          if (state.activeSongIndex >= state.setlist.length) {
+            state.activeSongIndex = Math.max(0, state.setlist.length - 1);
+          }
+        }
+        break;
+      }
+
+      case 'host:regenerateCode': {
+        if (!canControl(session, participantId, 'hostOnly')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        const oldId = state.sessionId;
+        const newId = generateSessionCode();
+        sessions.delete(oldId);
+        state.sessionId = newId;
+        sessions.set(newId, session);
+        void deleteLiveSessionFromDb(oldId).catch(() => {});
+        persistSessionToDb(session);
+        const payload = JSON.stringify({ type: 'session:codeChanged', newSessionId: newId, session: state });
+        for (const clientWs of session.sockets.values()) {
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(payload);
+          }
+        }
+        res.json({ session: state, newSessionId: newId, serverTime: Date.now() });
+        return;
+      }
+
+      case 'host:participantControl': {
+        if (!canControl(session, participantId, 'hostOnly')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        const targetId = typeof body.targetId === 'string' ? body.targetId : '';
+        const action = body.action;
+        if (targetId && targetId !== state.hostId) {
+          if (action === 'remove') {
+            state.participants = state.participants.filter((p) => p.id !== targetId);
+            session.participantTokens.delete(targetId);
+            session.kickedIds.add(targetId);
+            const targetWs = session.sockets.get(targetId);
+            if (targetWs) {
+              sendJson(targetWs, { type: 'session:kicked', reason: 'Removed by session host' });
+              targetWs.close();
+              session.sockets.delete(targetId);
+            }
+          } else if (action === 'toggleMute') {
+            const p = state.participants.find((m) => m.id === targetId);
+            if (p) p.isMuted = !p.isMuted;
+          } else if (
+            action === 'setPermissions' &&
+            body.permissions &&
+            typeof body.permissions === 'object'
+          ) {
+            const p = state.participants.find((m) => m.id === targetId);
+            if (p) {
+              const perms = body.permissions as Partial<RemotePermissions>;
+              p.permissions = {
+                playStop: Boolean(perms.playStop ?? p.permissions.playStop),
+                bpm: Boolean(perms.bpm ?? p.permissions.bpm),
+                setlistNav: Boolean(perms.setlistNav ?? p.permissions.setlistNav),
+              };
+            }
+          }
+        }
+        break;
+      }
+
+      case 'host:endSession': {
+        if (!canControl(session, participantId, 'hostOnly')) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+        clearAutomationTimer(session);
+        const endMsg = JSON.stringify({ type: 'session:ended' });
+        for (const clientWs of session.sockets.values()) {
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(endMsg);
+            clientWs.close();
+          }
+        }
+        sessions.delete(state.sessionId);
+        void deleteLiveSessionFromDb(state.sessionId).catch(() => {});
+        res.json({ ended: true, serverTime: Date.now() });
+        return;
+      }
+
+      default:
+        res.status(400).json({ error: 'Unknown command' });
+        return;
+    }
+
+    broadcastState(session);
+    res.json({ session: state, serverTime: Date.now() });
   });
 
   const server = http.createServer(app);
@@ -860,6 +1186,7 @@ async function startServer() {
           if (action === 'remove') {
             state.participants = state.participants.filter((p) => p.id !== targetId);
             session.participantTokens.delete(targetId);
+            session.kickedIds.add(targetId);
             const targetWs = session.sockets.get(targetId);
             if (targetWs) {
               sendJson(targetWs, { type: 'session:kicked', reason: 'Removed by session host' });
@@ -934,7 +1261,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false, ws: { server } },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);

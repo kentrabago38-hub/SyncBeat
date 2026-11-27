@@ -8,7 +8,7 @@ import type {
   MetronomeSessionState,
   Setlist,
 } from '../types/metronome';
-import { db } from './index.ts';
+import { db, isDbConfigured } from './index.ts';
 import {
   liveSessions,
   PersistedSessionConfigPayload,
@@ -27,11 +27,33 @@ export interface LiveSessionDbRecord {
   ended: boolean;
 }
 
+// In-memory fallback stores when Cloud SQL is not provisioned
+const memoryUsers = new Map<
+  string,
+  { id: number; uid: string; email: string; displayName: string | null; createdAt: Date; updatedAt: Date }
+>();
+const memoryUserLibraries = new Map<
+  string,
+  { presets: MetronomePreset[]; setlists: Setlist[]; updatedAt: number }
+>();
+const memoryUserConfigs = new Map<string, PersistedSessionConfigPayload>();
+const memoryLiveSessions = new Map<string, LiveSessionDbRecord & { lastActivityAt: Date }>();
+let nextMockUserId = 1;
+
 export async function getOrCreateUser(
   uid: string,
   email: string,
   displayName?: string | null
 ) {
+  if (!isDbConfigured) {
+    const existing = memoryUsers.get(uid);
+    const now = new Date();
+    const record = existing
+      ? { ...existing, email, displayName: displayName ?? null, updatedAt: now }
+      : { id: nextMockUserId++, uid, email, displayName: displayName ?? null, createdAt: now, updatedAt: now };
+    memoryUsers.set(uid, record);
+    return record;
+  }
   try {
     const result = await db
       .insert(users)
@@ -61,6 +83,9 @@ export async function getUserLibrary(uid: string): Promise<{
   setlists: Setlist[];
   updatedAt: number;
 } | null> {
+  if (!isDbConfigured) {
+    return memoryUserLibraries.get(uid) ?? null;
+  }
   try {
     const rows = await db
       .select()
@@ -86,6 +111,14 @@ export async function upsertUserLibrary(
   presets: MetronomePreset[],
   setlists: Setlist[]
 ): Promise<void> {
+  if (!isDbConfigured) {
+    memoryUserLibraries.set(uid, {
+      presets: presets.slice(0, 100),
+      setlists: setlists.slice(0, 50),
+      updatedAt: Date.now(),
+    });
+    return;
+  }
   try {
     await db
       .insert(userLibraries)
@@ -112,6 +145,9 @@ export async function upsertUserLibrary(
 export async function getUserSessionConfig(
   uid: string
 ): Promise<PersistedSessionConfigPayload | null> {
+  if (!isDbConfigured) {
+    return memoryUserConfigs.get(uid) ?? null;
+  }
   try {
     const rows = await db
       .select()
@@ -134,6 +170,13 @@ export async function upsertUserSessionConfig(
   uid: string,
   config: PersistedSessionConfigPayload
 ): Promise<void> {
+  if (!isDbConfigured) {
+    memoryUserConfigs.set(uid, {
+      ...config,
+      updatedAt: config.updatedAt ?? Date.now(),
+    });
+    return;
+  }
   try {
     const payload: PersistedSessionConfigPayload = {
       ...config,
@@ -162,6 +205,9 @@ export async function upsertUserSessionConfig(
 export async function getLiveSessionFromDb(
   sessionId: string
 ): Promise<LiveSessionDbRecord | null> {
+  if (!isDbConfigured) {
+    return memoryLiveSessions.get(sessionId.toUpperCase().trim()) ?? null;
+  }
   try {
     const rows = await db
       .select()
@@ -186,6 +232,13 @@ export async function getLiveSessionFromDb(
 }
 
 export async function upsertLiveSessionInDb(record: LiveSessionDbRecord): Promise<void> {
+  if (!isDbConfigured) {
+    memoryLiveSessions.set(record.sessionId.toUpperCase().trim(), {
+      ...record,
+      lastActivityAt: new Date(),
+    });
+    return;
+  }
   try {
     await db
       .insert(liveSessions)
@@ -217,6 +270,10 @@ export async function upsertLiveSessionInDb(record: LiveSessionDbRecord): Promis
 }
 
 export async function deleteLiveSessionFromDb(sessionId: string): Promise<void> {
+  if (!isDbConfigured) {
+    memoryLiveSessions.delete(sessionId.toUpperCase().trim());
+    return;
+  }
   try {
     await db
       .delete(liveSessions)
@@ -228,6 +285,14 @@ export async function deleteLiveSessionFromDb(sessionId: string): Promise<void> 
 }
 
 export async function pruneExpiredLiveSessions(cutoff: Date): Promise<void> {
+  if (!isDbConfigured) {
+    for (const [id, rec] of memoryLiveSessions.entries()) {
+      if (rec.lastActivityAt < cutoff) {
+        memoryLiveSessions.delete(id);
+      }
+    }
+    return;
+  }
   try {
     await db.delete(liveSessions).where(lt(liveSessions.lastActivityAt, cutoff));
   } catch (error) {

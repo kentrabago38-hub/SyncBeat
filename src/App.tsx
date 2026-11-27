@@ -272,7 +272,7 @@ export default function App() {
       </header>
 
       {/* Network / Session Alert Banners */}
-      {(!isBrowserOnline || sync.statusBanner || (sync.isWireless && sync.connectionQuality === 'offline')) && (
+      {(!isBrowserOnline || auth.authError || sync.statusBanner || (sync.isWireless && sync.connectionQuality === 'offline')) && (
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-3 space-y-2">
           {!isBrowserOnline && (
             <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
@@ -280,6 +280,20 @@ export default function App() {
                 <WifiOff className="w-4 h-4 shrink-0" />
                 <span>Offline Mode — Local metronome, click synthesis, and cached setlists remain active.</span>
               </div>
+            </div>
+          )}
+
+          {auth.authError && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-200">
+              <span>Sign-in notice: {auth.authError}</span>
+              <button
+                type="button"
+                onClick={auth.clearAuthError}
+                className="p-1 text-rose-300 hover:text-white"
+                aria-label="Dismiss sign-in error"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 

@@ -201,6 +201,7 @@ export function useMetronomeSync(
   const [reconnecting, setReconnecting] = useState(false);
 
   const [localSelfMuted, setLocalSelfMuted] = useState(false);
+  const [localMasterVolume, setLocalMasterVolume] = useState<number | null>(null);
   const [audioSuspended, setAudioSuspended] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const [deviceOffsetMs, setDeviceOffsetMsState] = useState<number>(() => {
@@ -232,15 +233,28 @@ export function useMetronomeSync(
   const localAutomationTimerRef = useRef<number | null>(null);
 
   const isWireless = Boolean(credentials && remoteSession);
-  const activeSession = isWireless && remoteSession ? remoteSession : localSession;
+  const baseSession = isWireless && remoteSession ? remoteSession : localSession;
   const myParticipantId = credentials?.participantId ?? LOCAL_HOST_ID;
 
   const me = useMemo(
-    () => activeSession.participants.find((p) => p.id === myParticipantId) ?? null,
-    [activeSession.participants, myParticipantId]
+    () => baseSession.participants.find((p) => p.id === myParticipantId) ?? null,
+    [baseSession.participants, myParticipantId]
   );
 
-  const isHost = !isWireless || activeSession.hostId === myParticipantId;
+  const isHost = !isWireless || baseSession.hostId === myParticipantId;
+
+  const activeSession = useMemo(() => {
+    if (isWireless && !isHost && localMasterVolume !== null) {
+      return {
+        ...baseSession,
+        clickProfile: {
+          ...baseSession.clickProfile,
+          masterVolume: localMasterVolume,
+        },
+      };
+    }
+    return baseSession;
+  }, [baseSession, isHost, isWireless, localMasterVolume]);
 
   const permissions: RemotePermissions = useMemo(() => {
     if (isHost) return { playStop: true, bpm: true, setlistNav: true };
@@ -1037,6 +1051,7 @@ export function useMetronomeSync(
     credsRef.current = null;
     setCredentials(null);
     setRemoteSession(null);
+    setLocalMasterVolume(null);
     setConnectionQuality('synced');
     setLatencyMs(0);
     setReconnecting(false);
@@ -1184,6 +1199,16 @@ export function useMetronomeSync(
       isLocked?: boolean;
     }) => {
       if (isWireless) {
+        if (
+          !isHost &&
+          patch.clickProfile &&
+          typeof patch.clickProfile.masterVolume === 'number' &&
+          Object.keys(patch).every((k) => k === 'clickProfile') &&
+          Object.keys(patch.clickProfile).every((k) => k === 'masterVolume')
+        ) {
+          setLocalMasterVolume(Math.min(1, Math.max(0, patch.clickProfile.masterVolume)));
+          return;
+        }
         const bpmOnly = Object.keys(patch).every((k) => k === 'bpm');
         if (bpmOnly ? !permissions.bpm : !isHost) return;
         sendCommand({ type: 'metronome:update', patch });
