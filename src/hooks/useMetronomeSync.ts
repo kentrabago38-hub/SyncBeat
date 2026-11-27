@@ -219,7 +219,10 @@ export function useMetronomeSync(
   );
 
   const wsRef = useRef<WebSocket | null>(null);
+  const wsAuthedRef = useRef<boolean>(false);
   const credsRef = useRef<AuthCredentials | null>(null);
+  const remoteSessionRef = useRef<MetronomeSessionState | null>(null);
+  remoteSessionRef.current = remoteSession;
   const transportModeRef = useRef<'ws' | 'http'>('ws');
   const httpPollTimerRef = useRef<number | null>(null);
   const httpInFlightRef = useRef<boolean>(false);
@@ -230,6 +233,7 @@ export function useMetronomeSync(
   const localClockOffsetRef = useRef<number>(Date.now() - performance.now());
   const serverOffsetRef = useRef<number>(0);
   const consecutiveFailuresRef = useRef<number>(0);
+  const notFoundStreakRef = useRef<number>(0);
   const lastMessageAtRef = useRef<number>(0);
   const computedQualityRef = useRef<ConnectionQuality>('synced');
   const pingTimerRef = useRef<number | null>(null);
@@ -819,19 +823,36 @@ export function useMetronomeSync(
             session?: MetronomeSessionState;
             newSessionId?: string;
             ended?: boolean;
+            kicked?: boolean;
+            rehydrateRequired?: boolean;
             serverRecvTime?: number;
             serverTime?: number;
           };
           if (typeof data.serverTime === 'number') {
             recordClockSample(sendTime, data.serverTime, data.serverRecvTime);
           }
-          if (data.ended) {
+          if (data.kicked) {
             manualDisconnectRef.current = true;
             cleanupSocket();
             credsRef.current = null;
             setCredentials(null);
             setRemoteSession(null);
             setConnectionQuality('synced');
+            setStatusBanner('You were removed from the session by the host.');
+            return;
+          }
+          if (data.ended === true || res.status === 410) {
+            manualDisconnectRef.current = true;
+            cleanupSocket();
+            credsRef.current = null;
+            setCredentials(null);
+            setRemoteSession(null);
+            setConnectionQuality('synced');
+            setStatusBanner('The rehearsal session has ended.');
+            return;
+          }
+          if (res.status === 404 && data.rehydrateRequired && remoteSessionRef.current) {
+            httpSyncNowRef.current?.();
             return;
           }
           if (data.newSessionId && credsRef.current) {
@@ -858,13 +879,16 @@ export function useMetronomeSync(
       transportModeRef.current = 'http';
       clockSamplesRef.current = [];
       consecutiveFailuresRef.current = 0;
+      notFoundStreakRef.current = 0;
       computedQualityRef.current = 'syncing';
       setConnectionQuality('syncing');
       setReconnecting(false);
 
-      const syncOnce = async () => {
+      const syncOnce = async (attachRehydrate = false) => {
         const activeCreds = credsRef.current;
-        if (!activeCreds || manualDisconnectRef.current || httpInFlightRef.current) return;
+        if (!activeCreds || manualDisconnectRef.current || (httpInFlightRef.current && !attachRehydrate)) {
+          return;
+        }
         httpInFlightRef.current = true;
         const controller = new AbortController();
         httpAbortRef.current = controller;
@@ -877,6 +901,15 @@ export function useMetronomeSync(
               : 0;
           const reportedStatus =
             computedQualityRef.current === 'offline' ? 'syncing' : computedQualityRef.current;
+          const bodyPayload: Record<string, unknown> = {
+            participantId: activeCreds.participantId,
+            token: activeCreds.token,
+            latencyMs: bestLatency,
+            status: reportedStatus,
+          };
+          if (attachRehydrate && remoteSessionRef.current) {
+            bodyPayload.rehydrateState = remoteSessionRef.current;
+          }
           const res = await fetch(
             apiUrl(`/api/sessions/${encodeURIComponent(activeCreds.sessionId)}/sync`),
             {
@@ -884,12 +917,7 @@ export function useMetronomeSync(
               headers: { 'Content-Type': 'application/json' },
               cache: 'no-store',
               signal: controller.signal,
-              body: JSON.stringify({
-                participantId: activeCreds.participantId,
-                token: activeCreds.token,
-                latencyMs: bestLatency,
-                status: reportedStatus,
-              }),
+              body: JSON.stringify(bodyPayload),
             }
           );
           const data = (await res.json().catch(() => ({}))) as {
@@ -898,6 +926,7 @@ export function useMetronomeSync(
             serverTime?: number;
             ended?: boolean;
             kicked?: boolean;
+            rehydrateRequired?: boolean;
             error?: string;
           };
 
@@ -911,7 +940,7 @@ export function useMetronomeSync(
             setStatusBanner('You were removed from the session by the host.');
             return;
           }
-          if (data.ended || res.status === 404 || res.status === 410) {
+          if (data.ended === true || res.status === 410) {
             manualDisconnectRef.current = true;
             cleanupSocket();
             credsRef.current = null;
@@ -921,8 +950,27 @@ export function useMetronomeSync(
             setStatusBanner('The rehearsal session has ended.');
             return;
           }
+          if (res.status === 404) {
+            if (data.rehydrateRequired && !attachRehydrate && remoteSessionRef.current) {
+              httpInFlightRef.current = false;
+              await syncOnce(true);
+              return;
+            }
+            notFoundStreakRef.current += 1;
+            if (notFoundStreakRef.current >= 4) {
+              manualDisconnectRef.current = true;
+              cleanupSocket();
+              credsRef.current = null;
+              setCredentials(null);
+              setRemoteSession(null);
+              setConnectionQuality('synced');
+              setStatusBanner('The rehearsal session has ended.');
+            }
+            return;
+          }
           if (res.ok && data.session) {
             consecutiveFailuresRef.current = 0;
+            notFoundStreakRef.current = 0;
             if (typeof data.serverTime === 'number') {
               recordClockSample(sendTime, data.serverTime, data.serverRecvTime);
             }
@@ -967,7 +1015,7 @@ export function useMetronomeSync(
       for (let i = 1; i <= 2; i++) {
         const id = window.setTimeout(() => {
           void syncOnce();
-        }, i * 160);
+        }, i * 240);
         burstTimersRef.current.push(id);
       }
       httpPollTimerRef.current = window.setInterval(() => {
@@ -981,6 +1029,7 @@ export function useMetronomeSync(
     (creds: AuthCredentials) => {
       cleanupSocket();
       manualDisconnectRef.current = false;
+      wsAuthedRef.current = false;
       transportModeRef.current = 'ws';
       consecutiveFailuresRef.current = 0;
       computedQualityRef.current = 'syncing';
@@ -1079,6 +1128,7 @@ export function useMetronomeSync(
         }
 
         if (msg.type === 'session:state' && msg.session) {
+          wsAuthedRef.current = true;
           const nextState = msg.session as MetronomeSessionState;
           setRemoteSession(nextState);
           setStatusBanner(null);
@@ -1122,6 +1172,11 @@ export function useMetronomeSync(
         }
 
         if (msg.type === 'session:error') {
+          if (!wsAuthedRef.current && credsRef.current) {
+            // Fall back to HTTP sync before closing if initial WS auth fails due to proxy/replica lag
+            startHttpSync(credsRef.current);
+            return;
+          }
           manualDisconnectRef.current = true;
           cleanupSocket();
           credsRef.current = null;

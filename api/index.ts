@@ -250,6 +250,36 @@ async function getSessionRecord(code: string): Promise<StoredSessionRecord | nul
   return memorySessions.get(clean) ?? null;
 }
 
+function tryBuildRehydratedRecord(
+  code: string,
+  participantId: string | undefined,
+  token: string | undefined,
+  rehydrateState: unknown
+): StoredSessionRecord | null {
+  if (getRedisConfig() || !participantId || !token || !rehydrateState || typeof rehydrateState !== 'object') {
+    return null;
+  }
+  const candidate = rehydrateState as MetronomeSessionState;
+  if (
+    typeof candidate.sessionId !== 'string' ||
+    candidate.sessionId.toUpperCase().trim() !== code ||
+    !Array.isArray(candidate.participants)
+  ) {
+    return null;
+  }
+  const hasParticipant = candidate.participants.some((p) => p && p.id === participantId);
+  if (!hasParticipant) {
+    return null;
+  }
+  return {
+    state: { ...candidate, sessionId: code },
+    hostToken: candidate.hostId === participantId ? token : '',
+    participantTokens: { [participantId]: token },
+    kickedIds: [],
+    ended: false,
+  };
+}
+
 async function saveSessionRecord(code: string, record: StoredSessionRecord): Promise<void> {
   const clean = code.toUpperCase().trim();
   record.state.lastActivityAt = Date.now();
@@ -781,12 +811,23 @@ app.post('/api/sessions/:code/sync', async (req, res) => {
       token?: string;
       latencyMs?: number;
       status?: Participant['status'];
+      rehydrateState?: unknown;
     };
-    const { participantId, token, latencyMs, status } = body;
+    const { participantId, token, latencyMs, status, rehydrateState } = body;
 
-    const record = await getSessionRecord(code);
+    let record = await getSessionRecord(code);
+    if (!record && rehydrateState) {
+      record = tryBuildRehydratedRecord(code, participantId, token, rehydrateState);
+      if (record) {
+        await saveSessionRecord(code, record);
+      }
+    }
     if (!record) {
-      res.status(404).json({ error: 'Session not found', ended: true });
+      res.status(404).json({
+        error: 'Session not found',
+        ended: false,
+        rehydrateRequired: !getRedisConfig(),
+      });
       return;
     }
     if (record.ended) {
@@ -797,9 +838,22 @@ app.post('/api/sessions/:code/sync', async (req, res) => {
       res.status(403).json({ error: 'Removed by session host', kicked: true });
       return;
     }
-    if (!participantId || !token || record.participantTokens[participantId] !== token) {
+    if (!participantId || !token) {
       res.status(401).json({ error: 'Unauthorized session token' });
       return;
+    }
+    if (record.participantTokens[participantId] !== token) {
+      const isListedParticipant =
+        !getRedisConfig() &&
+        !record.participantTokens[participantId] &&
+        record.state.participants.some((m) => m.id === participantId);
+      if (isListedParticipant) {
+        record.participantTokens[participantId] = token;
+        await saveSessionRecord(code, record);
+      } else {
+        res.status(401).json({ error: 'Unauthorized session token' });
+        return;
+      }
     }
 
     const now = Date.now();
@@ -852,14 +906,41 @@ app.post('/api/sessions/:code/command', async (req, res) => {
     const token = typeof body.token === 'string' ? body.token : '';
     const type = typeof body.type === 'string' ? body.type : '';
 
-    const record = await getSessionRecord(code);
-    if (!record || record.ended) {
-      res.status(404).json({ error: 'Session not found or ended', ended: true });
+    let record = await getSessionRecord(code);
+    if (!record && body.rehydrateState) {
+      record = tryBuildRehydratedRecord(code, participantId, token, body.rehydrateState);
+      if (record) {
+        await saveSessionRecord(code, record);
+      }
+    }
+    if (!record) {
+      res.status(404).json({
+        error: 'Session not found',
+        ended: false,
+        rehydrateRequired: !getRedisConfig(),
+      });
       return;
     }
-    if (!participantId || !token || record.participantTokens[participantId] !== token) {
+    if (record.ended) {
+      res.status(410).json({ error: 'Session ended by host', ended: true });
+      return;
+    }
+    if (!participantId || !token) {
       res.status(401).json({ error: 'Unauthorized session token' });
       return;
+    }
+    if (record.participantTokens[participantId] !== token) {
+      const isListedParticipant =
+        !getRedisConfig() &&
+        !record.participantTokens[participantId] &&
+        record.state.participants.some((m) => m.id === participantId);
+      if (isListedParticipant) {
+        record.participantTokens[participantId] = token;
+        await saveSessionRecord(code, record);
+      } else {
+        res.status(401).json({ error: 'Unauthorized session token' });
+        return;
+      }
     }
 
     const state = record.state;

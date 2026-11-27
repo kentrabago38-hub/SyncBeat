@@ -73,15 +73,31 @@ function persistSessionToDb(session: ServerSession): void {
   });
 }
 
-async function getOrHydrateSession(code: string): Promise<ServerSession | null> {
+async function getOrHydrateSession(code: string, forceRefresh = false): Promise<ServerSession | null> {
   const clean = code.toUpperCase().trim();
   const cached = sessions.get(clean);
-  if (cached) return cached;
+  if (cached && !forceRefresh) return cached;
 
   try {
     const dbRecord = await getLiveSessionFromDb(clean);
-    if (!dbRecord || dbRecord.ended) return null;
+    if (dbRecord?.ended) {
+      sessions.delete(clean);
+      return null;
+    }
+    if (!dbRecord) return cached ?? null;
     const tokenMap = new Map<string, string>(Object.entries(dbRecord.participantTokens || {}));
+    if (cached) {
+      cached.state = dbRecord.state;
+      cached.hostUid = dbRecord.hostUid;
+      cached.hostToken = dbRecord.hostToken;
+      for (const [k, v] of tokenMap.entries()) {
+        cached.participantTokens.set(k, v);
+      }
+      for (const kicked of dbRecord.kickedIds || []) {
+        cached.kickedIds.add(kicked);
+      }
+      return cached;
+    }
     const hydrated: ServerSession = {
       state: dbRecord.state,
       hostUid: dbRecord.hostUid,
@@ -94,7 +110,7 @@ async function getOrHydrateSession(code: string): Promise<ServerSession | null> 
     sessions.set(clean, hydrated);
     return hydrated;
   } catch {
-    return null;
+    return cached ?? null;
   }
 }
 
@@ -604,6 +620,24 @@ async function startServer() {
     session.state.participants.push(participant);
     broadcastState(session);
 
+    const tokenObj: Record<string, string> = {};
+    for (const [k, v] of session.participantTokens.entries()) {
+      tokenObj[k] = v;
+    }
+    try {
+      await upsertLiveSessionInDb({
+        sessionId: session.state.sessionId,
+        hostUid: session.hostUid,
+        hostToken: session.hostToken,
+        state: session.state,
+        participantTokens: tokenObj,
+        kickedIds: Array.from(session.kickedIds),
+        ended: false,
+      });
+    } catch {
+      // ignore fallback DB failure
+    }
+
     res.status(201).json({
       session: session.state,
       participantId,
@@ -623,9 +657,12 @@ async function startServer() {
       status?: Participant['status'];
     };
 
-    const session = await getOrHydrateSession(code);
+    let session = await getOrHydrateSession(code);
+    if (session && participantId && token && session.participantTokens.get(participantId) !== token) {
+      session = await getOrHydrateSession(code, true);
+    }
     if (!session) {
-      res.status(404).json({ error: 'Session not found', ended: true });
+      res.status(404).json({ error: 'Session not found', ended: false });
       return;
     }
     if (participantId && session.kickedIds.has(participantId)) {
@@ -678,9 +715,12 @@ async function startServer() {
     const token = typeof body.token === 'string' ? body.token : '';
     const type = typeof body.type === 'string' ? body.type : '';
 
-    const session = await getOrHydrateSession(code);
+    let session = await getOrHydrateSession(code);
+    if (session && participantId && token && session.participantTokens.get(participantId) !== token) {
+      session = await getOrHydrateSession(code, true);
+    }
     if (!session) {
-      res.status(404).json({ error: 'Session not found or ended', ended: true });
+      res.status(404).json({ error: 'Session not found', ended: false });
       return;
     }
     if (!participantId || !token || session.participantTokens.get(participantId) !== token) {
@@ -984,7 +1024,10 @@ async function startServer() {
         const participantId = typeof msg.participantId === 'string' ? msg.participantId : '';
         const token = typeof msg.token === 'string' ? msg.token : '';
 
-        const session = await getOrHydrateSession(sessionId);
+        let session = await getOrHydrateSession(sessionId);
+        if (session && (!session.participantTokens.get(participantId) || session.participantTokens.get(participantId) !== token)) {
+          session = await getOrHydrateSession(sessionId, true);
+        }
         if (!session) {
           sendJson(ws, { type: 'session:error', error: 'Session not found' });
           return;
