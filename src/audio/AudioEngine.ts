@@ -93,6 +93,7 @@ export class AudioEngine {
   private lastVocalMode = '';
   private lastVocalStyle = '';
   private lastBeatsPerBar = 0;
+  private lastCountInBars = 0;
   private localMuted = false;
 
   // 240ms lookahead window on the hardware AudioContext timeline
@@ -168,11 +169,31 @@ export class AudioEngine {
       this.noiseBuffer = this.createNoiseBuffer(this.ctx);
       sharedAudioVocalizer.preloadStandardCounts(this.ctx);
       this.initAudioClockPump(this.ctx);
+      this.ctx.addEventListener('statechange', () => {
+        if (this.ctx?.state === 'running' && this.session?.playback.isPlaying) {
+          this.reanchorToCurrentHardwareTime(this.session);
+          this.scheduleAhead();
+        }
+      });
     }
     if (this.ctx.state === 'suspended') {
       void this.ctx.resume();
     }
     return this.ctx;
+  }
+
+  private reanchorToCurrentHardwareTime(session: MetronomeSessionState): void {
+    if (!this.ctx || !session.playback.isPlaying) return;
+    const estimatedServerNow = performance.now() + this.serverOffsetMs;
+    this.anchorCtxTime =
+      this.ctx.currentTime +
+      (session.playback.anchorServerMs - estimatedServerNow + this.deviceOffsetMs) / 1000;
+    const subPerBeat = getSubdivisionsPerBeat(session.subdivision);
+    const dtMs = estimatedServerNow - session.playback.anchorServerMs;
+    const currentTotalBeats =
+      session.playback.anchorTotalBeats + (dtMs / 60000) * session.bpm;
+    const currentStep = Math.floor(currentTotalBeats * subPerBeat);
+    this.lastScheduledStepIndex = Math.max(-1, currentStep - 1);
   }
 
   public getContextTime(): number {
@@ -285,6 +306,7 @@ export class AudioEngine {
     const prevVocalMode = this.lastVocalMode;
     const prevVocalStyle = this.lastVocalStyle;
     const prevBeatsPerBar = this.lastBeatsPerBar;
+    const prevCountInBars = this.lastCountInBars;
     this.session = session;
 
     if (!session || !session.playback.isPlaying) {
@@ -296,6 +318,7 @@ export class AudioEngine {
       this.lastVocalMode = session?.clickProfile.vocalMode ?? '';
       this.lastVocalStyle = session?.clickProfile.vocalStyle ?? 'auto';
       this.lastBeatsPerBar = session?.timeSignature.numerator ?? 0;
+      this.lastCountInBars = session?.countInBars ?? 0;
       return;
     }
 
@@ -307,7 +330,8 @@ export class AudioEngine {
     const tempoChanged =
       session.bpm !== prevBpm ||
       session.subdivision !== prevSub ||
-      beatsPerBar !== prevBeatsPerBar;
+      beatsPerBar !== prevBeatsPerBar ||
+      session.countInBars !== prevCountInBars;
     const vocalChanged = vocalMode !== prevVocalMode || vocalStyle !== prevVocalStyle;
 
     const estimatedServerNow = performance.now() + this.serverOffsetMs;
@@ -324,14 +348,8 @@ export class AudioEngine {
       this.lastVocalMode = vocalMode;
       this.lastVocalStyle = vocalStyle;
       this.lastBeatsPerBar = beatsPerBar;
-      this.anchorCtxTime = targetAnchorCtxTime;
-
-      const subPerBeat = getSubdivisionsPerBeat(session.subdivision);
-      const dtMs = estimatedServerNow - session.playback.anchorServerMs;
-      const currentTotalBeats =
-        session.playback.anchorTotalBeats + (dtMs / 60000) * session.bpm;
-      const currentStep = Math.floor(currentTotalBeats * subPerBeat);
-      this.lastScheduledStepIndex = Math.max(-1, currentStep - 1);
+      this.lastCountInBars = session.countInBars;
+      this.reanchorToCurrentHardwareTime(session);
     } else {
       if (vocalChanged) {
         sharedAudioVocalizer.stopAll(ctx);

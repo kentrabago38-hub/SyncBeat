@@ -642,7 +642,22 @@ async function startServer() {
       return;
     }
 
-    const body = req.body as { name?: unknown; role?: unknown };
+    const body = req.body as { name?: unknown; role?: unknown; replacesParticipantId?: unknown };
+    const replacesId =
+      typeof body.replacesParticipantId === 'string' ? body.replacesParticipantId.trim() : '';
+    if (
+      replacesId &&
+      replacesId !== session.state.hostId &&
+      !session.kickedIds.has(replacesId)
+    ) {
+      const existingWs = session.sockets.get(replacesId);
+      if (!existingWs || existingWs.readyState !== WebSocket.OPEN) {
+        session.sockets.delete(replacesId);
+        session.participantTokens.delete(replacesId);
+        session.state.participants = session.state.participants.filter((p) => p.id !== replacesId);
+      }
+    }
+
     const participantId = crypto.randomUUID();
     const token = crypto.randomBytes(24).toString('hex');
     const role = sanitizeRole(body.role);

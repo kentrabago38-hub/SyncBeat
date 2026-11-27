@@ -257,6 +257,7 @@ export function useMetronomeSync(
   const remoteSessionRef = useRef<MetronomeSessionState | null>(null);
   remoteSessionRef.current = remoteSession;
   const transportModeRef = useRef<'ws' | 'http'>('ws');
+  const [transportMode, setTransportMode] = useState<'ws' | 'http'>('ws');
   const httpPollTimerRef = useRef<number | null>(null);
   const httpInFlightRef = useRef<boolean>(false);
   const httpAbortRef = useRef<AbortController | null>(null);
@@ -623,19 +624,29 @@ export function useMetronomeSync(
               if (!prev.playback.isPlaying) return prev;
               const s = prev.setlist[prev.activeSongIndex];
               if (!s?.tempoSections) return prev;
+              const bpb = Math.max(1, prev.timeSignature.numerator);
+              const ciBeats = prev.countInBars * bpb;
               const nextIdx = prev.playback.activeSectionIndex + 1;
+              let cum = 0;
+              for (let i = 0; i <= prev.playback.activeSectionIndex; i++) {
+                cum += (s.tempoSections[i]?.bars ?? 0) * bpb;
+              }
+              const targetTotal = ciBeats + cum;
+              const exactTransitionMs =
+                prev.playback.anchorServerMs +
+                ((targetTotal - prev.playback.anchorTotalBeats) / prev.bpm) * 60000;
+              const transitionMs =
+                Number.isFinite(exactTransitionMs) && Math.abs(Date.now() - exactTransitionMs) < 1500
+                  ? exactTransitionMs
+                  : Date.now();
               if (nextIdx < s.tempoSections.length) {
-                const tNow = Date.now();
-                const tb =
-                  prev.playback.anchorTotalBeats +
-                  (Math.max(0, tNow - prev.playback.anchorServerMs) / 60000) * prev.bpm;
                 return {
                   ...prev,
                   bpm: s.tempoSections[nextIdx].bpm,
                   playback: {
                     ...prev.playback,
-                    anchorServerMs: tNow,
-                    anchorTotalBeats: tb,
+                    anchorServerMs: transitionMs,
+                    anchorTotalBeats: targetTotal,
                     activeSectionIndex: nextIdx,
                     sequenceId: prev.playback.sequenceId + 1,
                   },
@@ -655,7 +666,7 @@ export function useMetronomeSync(
                   clickProfile: { ...prev.clickProfile, normalSound: nextSong.clickSound },
                   playback: {
                     isPlaying: true,
-                    anchorServerMs: Date.now() + 80,
+                    anchorServerMs: transitionMs,
                     anchorTotalBeats: 0,
                     activeSectionIndex: 0,
                     sequenceId: prev.playback.sequenceId + 1,
@@ -678,6 +689,16 @@ export function useMetronomeSync(
         localAutomationTimerRef.current = window.setTimeout(() => {
           setLocalSession((prev) => {
             if (!prev.playback.isPlaying || prev.activeSongIndex + 1 >= prev.setlist.length) return prev;
+            const s = prev.setlist[prev.activeSongIndex];
+            const bpb = Math.max(1, prev.timeSignature.numerator);
+            const targetTotal = prev.countInBars * bpb + (s?.bars ?? 0) * bpb;
+            const exactTransitionMs =
+              prev.playback.anchorServerMs +
+              ((targetTotal - prev.playback.anchorTotalBeats) / prev.bpm) * 60000;
+            const transitionMs =
+              Number.isFinite(exactTransitionMs) && Math.abs(Date.now() - exactTransitionMs) < 1500
+                ? exactTransitionMs
+                : Date.now();
             const nextSong = prev.setlist[prev.activeSongIndex + 1];
             const startBpm = nextSong.tempoSections?.[0]?.bpm ?? nextSong.bpm;
             return {
@@ -691,7 +712,7 @@ export function useMetronomeSync(
               clickProfile: { ...prev.clickProfile, normalSound: nextSong.clickSound },
               playback: {
                 isPlaying: true,
-                anchorServerMs: Date.now() + 80,
+                anchorServerMs: transitionMs,
                 anchorTotalBeats: 0,
                 activeSectionIndex: 0,
                 sequenceId: prev.playback.sequenceId + 1,
@@ -958,6 +979,7 @@ export function useMetronomeSync(
       cleanupSocket();
       manualDisconnectRef.current = false;
       transportModeRef.current = 'http';
+      setTransportMode('http');
       clockSamplesRef.current = [];
       consecutiveFailuresRef.current = 0;
       notFoundStreakRef.current = 0;
@@ -1153,6 +1175,7 @@ export function useMetronomeSync(
       manualDisconnectRef.current = false;
       wsAuthedRef.current = false;
       transportModeRef.current = 'ws';
+      setTransportMode('ws');
       consecutiveFailuresRef.current = 0;
       computedQualityRef.current = 'syncing';
       setConnectionQuality('syncing');
@@ -1468,6 +1491,7 @@ export function useMetronomeSync(
               body: JSON.stringify({
                 name: target.name || 'Musician',
                 role: target.role || 'Guitar',
+                replacesParticipantId: target.participantId,
               }),
             }
           );
@@ -2365,7 +2389,7 @@ export function useMetronomeSync(
     sessionId: isWireless ? activeSession.sessionId : null,
     myParticipantId: isWireless ? myParticipantId : null,
     participants: activeSession.participants,
-    transportMode: transportModeRef.current,
+    transportMode,
     onSendSignal: handleSendStageSignal,
     onReceiveMeshState: handleReceiveMeshState,
     onRelayCommandToServer: handleRelayCommandToServer,

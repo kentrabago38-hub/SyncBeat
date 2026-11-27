@@ -28,6 +28,8 @@ export const StageFlashBackdrop: React.FC<StageFlashBackdropProps> = ({
 
   const getSnapshotRef = useRef(getTimelineSnapshot);
   getSnapshotRef.current = getTimelineSnapshot;
+  const latestTimelineRef = useRef(timeline);
+  latestTimelineRef.current = timeline;
   const accentPatternRef = useRef(accentPattern);
   accentPatternRef.current = accentPattern;
   const reducedMotionRef = useRef(reducedMotion);
@@ -55,7 +57,7 @@ export const StageFlashBackdrop: React.FC<StageFlashBackdropProps> = ({
         return;
       }
 
-      const snap = getSnapshotRef.current?.() ?? timeline;
+      const snap = getSnapshotRef.current?.() ?? latestTimelineRef.current;
       if (!snap.isPlaying) {
         clearAll();
         rafId = requestAnimationFrame(renderFrame);
@@ -116,7 +118,7 @@ export const StageFlashBackdrop: React.FC<StageFlashBackdropProps> = ({
       }
       clearAll();
     };
-  }, [enabled, timeline, timeline.isPlaying]);
+  }, [enabled, timeline.isPlaying]);
 
   if (!enabled) return null;
 

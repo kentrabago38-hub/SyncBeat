@@ -141,7 +141,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
         <button
           type="button"
           onClick={onUnlockAudio}
-          className="mx-auto mt-2 flex items-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/15 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
+          className="relative z-10 mx-auto mt-2 flex items-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/15 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
         >
           <Volume2 className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           <span>Tap to enable stage audio</span>

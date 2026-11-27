@@ -597,8 +597,8 @@ export const D3BeatPulseVisualizer: React.FC<D3BeatPulseVisualizerProps> = React
       }
     };
 
-    // Always draw latest state immediately
-    renderFrame(getSnapshotRef.current ? getSnapshotRef.current() : timeline);
+    // Always draw latest state immediately (and whenever stopped props change)
+    renderFrame(getSnapshotRef.current ? getSnapshotRef.current() : latestPropsRef.current.timeline);
 
     if (!timeline.isPlaying || !getSnapshotRef.current) {
       return;
@@ -633,7 +633,7 @@ export const D3BeatPulseVisualizer: React.FC<D3BeatPulseVisualizerProps> = React
         document.removeEventListener('visibilitychange', handleVisibility);
       }
     };
-  }, [accentPattern, bpm, isLight, numBeats, reducedMotion, timeline, visualFlash]);
+  }, [accentPattern, bpm, isLight, numBeats, reducedMotion, timeline.isPlaying, visualFlash]);
 
   const beatIntervalMs = Math.round(60000 / Math.max(20, bpm));
 

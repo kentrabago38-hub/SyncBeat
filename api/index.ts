@@ -774,7 +774,22 @@ app.post('/api/sessions/:code/join', async (req, res) => {
       return;
     }
 
-    const body = normalizeObjectBody(req.body) as { name?: unknown; role?: unknown };
+    const body = normalizeObjectBody(req.body) as {
+      name?: unknown;
+      role?: unknown;
+      replacesParticipantId?: unknown;
+    };
+    const replacesId =
+      typeof body.replacesParticipantId === 'string' ? body.replacesParticipantId.trim() : '';
+    if (
+      replacesId &&
+      replacesId !== record.state.hostId &&
+      !record.kickedIds.includes(replacesId)
+    ) {
+      delete record.participantTokens[replacesId];
+      record.state.participants = record.state.participants.filter((p) => p.id !== replacesId);
+    }
+
     const participantId = crypto.randomUUID();
     const token = crypto.randomBytes(24).toString('hex');
     const role = sanitizeRole(body.role);

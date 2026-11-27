@@ -33,6 +33,8 @@ export const BeatVisualizer: React.FC<BeatVisualizerProps> = React.memo(({
   const progressRailRef = useRef<HTMLDivElement | null>(null);
   const getSnapshotRef = useRef(getTimelineSnapshot);
   getSnapshotRef.current = getTimelineSnapshot;
+  const latestTimelineRef = useRef(timeline);
+  latestTimelineRef.current = timeline;
 
   // Drive smooth GPU-composited scaleX progress rail directly without React re-renders
   useEffect(() => {
@@ -41,7 +43,7 @@ export const BeatVisualizer: React.FC<BeatVisualizerProps> = React.memo(({
 
     if (!timeline.isPlaying || !getSnapshotRef.current) {
       const staticRatio = timeline.isPlaying
-        ? Math.min(1, Math.max(0, (timeline.currentBeat + timeline.beatPhase) / numBeats))
+        ? Math.min(1, Math.max(0, (latestTimelineRef.current.currentBeat + latestTimelineRef.current.beatPhase) / numBeats))
         : 0;
       el.style.transform = `scaleX(${staticRatio.toFixed(4)})`;
       return;
@@ -84,7 +86,7 @@ export const BeatVisualizer: React.FC<BeatVisualizerProps> = React.memo(({
         document.removeEventListener('visibilitychange', handleVisibility);
       }
     };
-  }, [numBeats, timeline.isPlaying, timeline.currentBeat, timeline.beatPhase]);
+  }, [numBeats, timeline.isPlaying]);
 
   const isBeatActive = (idx: number) => timeline.isPlaying && timeline.currentBeat === idx;
   const activeAccentType = accentPattern[timeline.currentBeat] ?? 'normal';

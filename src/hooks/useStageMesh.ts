@@ -53,6 +53,7 @@ export function useStageMesh({
   const peersRef = useRef<Map<string, PeerLinkEntry>>(new Map());
   const lastForwardedVersionRef = useRef<string>('');
   const serverOffsetRef = useRef<number>(0);
+  const lastRelayAtRef = useRef<number>(0);
 
   const [meshStatus, setMeshStatus] = useState<StageMeshStatus>({
     enabled,
@@ -72,6 +73,9 @@ export function useStageMesh({
 
   const publishStatus = useCallback(
     (relayedActive = false) => {
+      if (relayedActive) {
+        lastRelayAtRef.current = Date.now();
+      }
       const entries = Array.from(peersRef.current.values());
       const openEntries = entries.filter((p) => p.connected);
       const rtts = openEntries
@@ -79,16 +83,18 @@ export function useStageMesh({
         .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
       const avg =
         rtts.length > 0 ? Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length) : null;
+      const relayIsFresh =
+        openEntries.length > 0 &&
+        (relayedActive || Date.now() - lastRelayAtRef.current < 8000);
 
-      setMeshStatus((prev) => ({
+      setMeshStatus({
         enabled,
         connectedPeers: openEntries.length,
         knownPeers: entries.length,
-        relayedSyncActive: relayedActive || prev.relayedSyncActive,
+        relayedSyncActive: relayIsFresh,
         avgMeshLatencyMs: avg,
-        transportDetail:
-          relayedActive && openEntries.length > 0 ? 'mesh-relay' : transportMode,
-      }));
+        transportDetail: relayIsFresh ? 'mesh-relay' : transportMode,
+      });
     },
     [enabled, transportMode]
   );
@@ -282,8 +288,16 @@ export function useStageMesh({
         }
       };
 
+      let disconnectTimer: number | null = null;
       pc.onconnectionstatechange = () => {
-        if (
+        if (pc.connectionState === 'connected') {
+          if (disconnectTimer) {
+            window.clearTimeout(disconnectTimer);
+            disconnectTimer = null;
+          }
+          entry.connected = entry.dc?.readyState === 'open';
+          publishStatus(false);
+        } else if (
           pc.connectionState === 'failed' ||
           pc.connectionState === 'closed' ||
           pc.connectionState === 'disconnected'
@@ -291,7 +305,15 @@ export function useStageMesh({
           entry.connected = false;
           publishStatus(false);
           if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+            if (disconnectTimer) window.clearTimeout(disconnectTimer);
             closePeer(peerId);
+          } else if (!disconnectTimer) {
+            disconnectTimer = window.setTimeout(() => {
+              disconnectTimer = null;
+              if (pc.connectionState === 'disconnected') {
+                closePeer(peerId);
+              }
+            }, 8000);
           }
         }
       };
