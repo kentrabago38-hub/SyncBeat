@@ -1,5 +1,16 @@
-import { AlertTriangle, CheckCircle2, Loader2, WifiOff } from 'lucide-react';
+import {
+  AlertTriangle,
+  BatteryCharging,
+  BatteryFull,
+  BatteryLow,
+  BatteryMedium,
+  BatteryWarning,
+  CheckCircle2,
+  Loader2,
+  WifiOff,
+} from 'lucide-react';
 import React from 'react';
+import { useBatteryStatus } from '../hooks/useBatteryStatus';
 import { ConnectionQuality } from '../types/metronome';
 
 interface ConnectionBadgeProps {
@@ -9,6 +20,63 @@ interface ConnectionBadgeProps {
   reconnecting?: boolean;
   compact?: boolean;
 }
+
+function formatRemainingTime(seconds: number | null): string {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return '';
+  const totalMins = Math.round(seconds / 60);
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hours > 0) return ` (~${hours}h ${mins}m left)`;
+  return ` (~${mins}m left)`;
+}
+
+const BatteryIndicator: React.FC = () => {
+  const { isPWA, supported, levelPercent, charging, dischargingTimeSec } = useBatteryStatus();
+
+  if (!isPWA || !supported || levelPercent === null) {
+    return null;
+  }
+
+  let BatteryIcon = BatteryFull;
+  let toneClass = 'text-slate-600 dark:text-zinc-300';
+
+  if (charging) {
+    BatteryIcon = BatteryCharging;
+    toneClass = 'text-emerald-600 dark:text-emerald-400';
+  } else if (levelPercent <= 15) {
+    BatteryIcon = BatteryWarning;
+    toneClass = 'text-rose-600 dark:text-rose-400';
+  } else if (levelPercent <= 25) {
+    BatteryIcon = BatteryLow;
+    toneClass = 'text-amber-600 dark:text-amber-400';
+  } else if (levelPercent <= 65) {
+    BatteryIcon = BatteryMedium;
+    toneClass = 'text-slate-600 dark:text-zinc-300';
+  } else {
+    BatteryIcon = BatteryFull;
+    toneClass = 'text-emerald-600 dark:text-emerald-400';
+  }
+
+  const title = charging
+    ? `Device battery: ${levelPercent}% (Charging)`
+    : `Device battery: ${levelPercent}%${formatRemainingTime(dischargingTimeSec)}`;
+
+  return (
+    <>
+      <span className="text-slate-300 dark:text-zinc-600" aria-hidden="true">
+        ·
+      </span>
+      <span
+        className={`inline-flex items-center gap-1 font-mono-tabular font-semibold ${toneClass}`}
+        title={title}
+        aria-label={title}
+      >
+        <BatteryIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        <span>{levelPercent}%</span>
+      </span>
+    </>
+  );
+};
 
 export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
   quality,
@@ -22,6 +90,7 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
       <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap shrink-0">
         <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-zinc-500" aria-hidden="true" />
         <span className="font-medium text-slate-700 dark:text-zinc-300">Solo Mode</span>
+        {!compact && <BatteryIndicator />}
       </div>
     );
   }
@@ -71,6 +140,7 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
           <span className="font-mono-tabular text-slate-500 dark:text-zinc-400">{latencyMs} ms</span>
         </>
       )}
+      {!compact && <BatteryIndicator />}
     </div>
   );
 };
