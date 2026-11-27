@@ -8,7 +8,7 @@ import type {
   MetronomeSessionState,
   Setlist,
 } from '../types/metronome.ts';
-import { db } from './index.ts';
+import { db, isDbConfigured } from './index.ts';
 import {
   liveSessions,
   PersistedSessionConfigPayload,
@@ -30,10 +30,30 @@ export interface LiveSessionDbRecord {
 
 const SHARED_LIBRARY_ID = 'default';
 
+// In-memory fallback store used when Cloud SQL is not configured or unreachable
+let memSharedLibrary: { presets: MetronomePreset[]; setlists: Setlist[] } = {
+  presets: DEFAULT_PRESETS,
+  setlists: DEFAULT_SETLISTS,
+};
+let memUserSeq = 1;
+const memUsers = new Map<
+  string,
+  { id: number; uid: string; email: string; displayName: string | null; createdAt: Date; updatedAt: Date }
+>();
+const memUserLibraries = new Map<
+  string,
+  { presets: MetronomePreset[]; setlists: Setlist[]; updatedAt: number }
+>();
+const memUserSessionConfigs = new Map<string, PersistedSessionConfigPayload>();
+const memLiveSessions = new Map<string, LiveSessionDbRecord & { lastActivityMs: number }>();
+
 export async function getSharedLibrary(): Promise<{
   presets: MetronomePreset[];
   setlists: Setlist[];
 }> {
+  if (!isDbConfigured) {
+    return memSharedLibrary;
+  }
   try {
     const rows = await db
       .select()
@@ -51,8 +71,8 @@ export async function getSharedLibrary(): Promise<{
         Array.isArray(row.setlists) && row.setlists.length > 0 ? row.setlists : DEFAULT_SETLISTS,
     };
   } catch (error) {
-    console.error('Database query failed (getSharedLibrary):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (getSharedLibrary), using in-memory fallback:', error);
+    return memSharedLibrary;
   }
 }
 
@@ -60,26 +80,30 @@ export async function upsertSharedLibrary(
   presets: MetronomePreset[],
   setlists: Setlist[]
 ): Promise<void> {
+  memSharedLibrary = {
+    presets: presets.slice(0, 100),
+    setlists: setlists.slice(0, 50),
+  };
+  if (!isDbConfigured) return;
   try {
     await db
       .insert(sharedLibrary)
       .values({
         id: SHARED_LIBRARY_ID,
-        presets: presets.slice(0, 100),
-        setlists: setlists.slice(0, 50),
+        presets: memSharedLibrary.presets,
+        setlists: memSharedLibrary.setlists,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: sharedLibrary.id,
         set: {
-          presets: presets.slice(0, 100),
-          setlists: setlists.slice(0, 50),
+          presets: memSharedLibrary.presets,
+          setlists: memSharedLibrary.setlists,
           updatedAt: new Date(),
         },
       });
   } catch (error) {
-    console.error('Database query failed (upsertSharedLibrary):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (upsertSharedLibrary), saved to memory:', error);
   }
 }
 
@@ -88,6 +112,21 @@ export async function getOrCreateUser(
   email: string,
   displayName?: string | null
 ) {
+  const existing = memUsers.get(uid);
+  const now = new Date();
+  const memUser = {
+    id: existing?.id ?? memUserSeq++,
+    uid,
+    email,
+    displayName: displayName ?? null,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  memUsers.set(uid, memUser);
+
+  if (!isDbConfigured) {
+    return memUser;
+  }
   try {
     const result = await db
       .insert(users)
@@ -105,10 +144,10 @@ export async function getOrCreateUser(
         },
       })
       .returning();
-    return result[0];
+    return result[0] ?? memUser;
   } catch (error) {
-    console.error('Database query failed (getOrCreateUser):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (getOrCreateUser), using in-memory fallback:', error);
+    return memUser;
   }
 }
 
@@ -117,6 +156,9 @@ export async function getUserLibrary(uid: string): Promise<{
   setlists: Setlist[];
   updatedAt: number;
 } | null> {
+  if (!isDbConfigured) {
+    return memUserLibraries.get(uid) ?? null;
+  }
   try {
     const rows = await db
       .select()
@@ -132,8 +174,8 @@ export async function getUserLibrary(uid: string): Promise<{
       updatedAt: row.updatedAt.getTime(),
     };
   } catch (error) {
-    console.error('Database query failed (getUserLibrary):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (getUserLibrary), using in-memory fallback:', error);
+    return memUserLibraries.get(uid) ?? null;
   }
 }
 
@@ -142,32 +184,42 @@ export async function upsertUserLibrary(
   presets: MetronomePreset[],
   setlists: Setlist[]
 ): Promise<void> {
+  const slicedPresets = presets.slice(0, 100);
+  const slicedSetlists = setlists.slice(0, 50);
+  memUserLibraries.set(uid, {
+    presets: slicedPresets,
+    setlists: slicedSetlists,
+    updatedAt: Date.now(),
+  });
+  if (!isDbConfigured) return;
   try {
     await db
       .insert(userLibraries)
       .values({
         userUid: uid,
-        presets: presets.slice(0, 100),
-        setlists: setlists.slice(0, 50),
+        presets: slicedPresets,
+        setlists: slicedSetlists,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: userLibraries.userUid,
         set: {
-          presets: presets.slice(0, 100),
-          setlists: setlists.slice(0, 50),
+          presets: slicedPresets,
+          setlists: slicedSetlists,
           updatedAt: new Date(),
         },
       });
   } catch (error) {
-    console.error('Database query failed (upsertUserLibrary):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (upsertUserLibrary), saved to memory:', error);
   }
 }
 
 export async function getUserSessionConfig(
   uid: string
 ): Promise<PersistedSessionConfigPayload | null> {
+  if (!isDbConfigured) {
+    return memUserSessionConfigs.get(uid) ?? null;
+  }
   try {
     const rows = await db
       .select()
@@ -181,8 +233,8 @@ export async function getUserSessionConfig(
       updatedAt: row.config.updatedAt ?? row.updatedAt.getTime(),
     };
   } catch (error) {
-    console.error('Database query failed (getUserSessionConfig):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (getUserSessionConfig), using in-memory fallback:', error);
+    return memUserSessionConfigs.get(uid) ?? null;
   }
 }
 
@@ -190,11 +242,13 @@ export async function upsertUserSessionConfig(
   uid: string,
   config: PersistedSessionConfigPayload
 ): Promise<void> {
+  const payload: PersistedSessionConfigPayload = {
+    ...config,
+    updatedAt: config.updatedAt ?? Date.now(),
+  };
+  memUserSessionConfigs.set(uid, payload);
+  if (!isDbConfigured) return;
   try {
-    const payload: PersistedSessionConfigPayload = {
-      ...config,
-      updatedAt: config.updatedAt ?? Date.now(),
-    };
     await db
       .insert(userSessionConfigs)
       .values({
@@ -210,19 +264,22 @@ export async function upsertUserSessionConfig(
         },
       });
   } catch (error) {
-    console.error('Database query failed (upsertUserSessionConfig):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (upsertUserSessionConfig), saved to memory:', error);
   }
 }
 
 export async function getLiveSessionFromDb(
   sessionId: string
 ): Promise<LiveSessionDbRecord | null> {
+  const clean = sessionId.toUpperCase().trim();
+  if (!isDbConfigured) {
+    return memLiveSessions.get(clean) ?? null;
+  }
   try {
     const rows = await db
       .select()
       .from(liveSessions)
-      .where(eq(liveSessions.sessionId, sessionId.toUpperCase().trim()))
+      .where(eq(liveSessions.sessionId, clean))
       .limit(1);
     const row = rows[0];
     if (!row) return null;
@@ -236,17 +293,20 @@ export async function getLiveSessionFromDb(
       ended: row.ended,
     };
   } catch (error) {
-    console.error('Database query failed (getLiveSessionFromDb):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (getLiveSessionFromDb), using in-memory fallback:', error);
+    return memLiveSessions.get(clean) ?? null;
   }
 }
 
 export async function upsertLiveSessionInDb(record: LiveSessionDbRecord): Promise<void> {
+  const clean = record.sessionId.toUpperCase().trim();
+  memLiveSessions.set(clean, { ...record, sessionId: clean, lastActivityMs: Date.now() });
+  if (!isDbConfigured) return;
   try {
     await db
       .insert(liveSessions)
       .values({
-        sessionId: record.sessionId,
+        sessionId: clean,
         hostUid: record.hostUid,
         hostToken: record.hostToken,
         state: record.state,
@@ -267,26 +327,34 @@ export async function upsertLiveSessionInDb(record: LiveSessionDbRecord): Promis
         },
       });
   } catch (error) {
-    console.error('Database query failed (upsertLiveSessionInDb):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (upsertLiveSessionInDb), saved to memory:', error);
   }
 }
 
 export async function deleteLiveSessionFromDb(sessionId: string): Promise<void> {
+  const clean = sessionId.toUpperCase().trim();
+  memLiveSessions.delete(clean);
+  if (!isDbConfigured) return;
   try {
     await db
       .delete(liveSessions)
-      .where(eq(liveSessions.sessionId, sessionId.toUpperCase().trim()));
+      .where(eq(liveSessions.sessionId, clean));
   } catch (error) {
-    console.error('Database query failed (deleteLiveSessionFromDb):', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.warn('Database unavailable (deleteLiveSessionFromDb):', error);
   }
 }
 
 export async function pruneExpiredLiveSessions(cutoff: Date): Promise<void> {
+  const cutoffMs = cutoff.getTime();
+  for (const [id, rec] of memLiveSessions.entries()) {
+    if (rec.lastActivityMs < cutoffMs) {
+      memLiveSessions.delete(id);
+    }
+  }
+  if (!isDbConfigured) return;
   try {
     await db.delete(liveSessions).where(lt(liveSessions.lastActivityAt, cutoff));
   } catch (error) {
-    console.error('Database query failed (pruneExpiredLiveSessions):', error);
+    console.warn('Database unavailable (pruneExpiredLiveSessions):', error);
   }
 }

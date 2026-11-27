@@ -859,8 +859,31 @@ export function useMetronomeSync(
       setConnectionQuality('syncing');
 
       let wsOpened = false;
-      const ws = new WebSocket(getWsUrl());
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(getWsUrl());
+      } catch {
+        startHttpSync(creds);
+        return;
+      }
       wsRef.current = ws;
+
+      const handshakeTimer = window.setTimeout(() => {
+        if (!wsOpened && !manualDisconnectRef.current && credsRef.current) {
+          try {
+            ws.onclose = null;
+            ws.onerror = null;
+            ws.onmessage = null;
+            ws.close();
+          } catch {
+            // ignore
+          }
+          if (wsRef.current === ws) {
+            wsRef.current = null;
+          }
+          startHttpSync(credsRef.current);
+        }
+      }, 2500);
 
       const sendPing = () => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -870,6 +893,7 @@ export function useMetronomeSync(
 
       ws.onopen = () => {
         wsOpened = true;
+        window.clearTimeout(handshakeTimer);
         transportModeRef.current = 'ws';
         reconnectAttemptRef.current = 0;
         setReconnecting(false);
@@ -961,6 +985,7 @@ export function useMetronomeSync(
       };
 
       ws.onclose = () => {
+        window.clearTimeout(handshakeTimer);
         if (pingTimerRef.current) {
           clearInterval(pingTimerRef.current);
           pingTimerRef.current = null;
