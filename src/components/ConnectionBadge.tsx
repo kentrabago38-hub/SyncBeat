@@ -19,9 +19,9 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
 }) => {
   if (!isWireless) {
     return (
-      <div className="inline-flex items-center gap-2 text-xs text-zinc-400 whitespace-nowrap shrink-0">
-        <span className="h-2 w-2 rounded-full bg-zinc-500" aria-hidden="true" />
-        <span className="font-medium text-zinc-300">Solo Mode</span>
+      <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap shrink-0">
+        <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-zinc-500" aria-hidden="true" />
+        <span className="font-medium text-slate-700 dark:text-zinc-300">Solo Mode</span>
       </div>
     );
   }
@@ -32,22 +32,22 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
   > = {
     synced: {
       label: 'SYNCED',
-      colorClass: 'text-emerald-400',
+      colorClass: 'text-emerald-600 dark:text-emerald-400',
       Icon: CheckCircle2,
     },
     syncing: {
       label: reconnecting ? 'RESYNCING...' : 'SYNCING...',
-      colorClass: 'text-amber-400',
+      colorClass: 'text-amber-600 dark:text-amber-400',
       Icon: ({ className }) => <Loader2 className={`${className ?? ''} animate-spin`} />,
     },
     unstable: {
       label: 'UNSTABLE',
-      colorClass: 'text-orange-400',
+      colorClass: 'text-orange-600 dark:text-orange-400',
       Icon: AlertTriangle,
     },
     offline: {
       label: reconnecting ? 'RECONNECTING...' : 'OFFLINE',
-      colorClass: 'text-rose-400',
+      colorClass: 'text-rose-600 dark:text-rose-400',
       Icon: WifiOff,
     },
   };
@@ -67,8 +67,8 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
       </span>
       {!compact && quality !== 'offline' && (
         <>
-          <span className="text-zinc-600" aria-hidden="true">·</span>
-          <span className="font-mono-tabular text-zinc-400">{latencyMs} ms</span>
+          <span className="text-slate-300 dark:text-zinc-600" aria-hidden="true">·</span>
+          <span className="font-mono-tabular text-slate-500 dark:text-zinc-400">{latencyMs} ms</span>
         </>
       )}
     </div>

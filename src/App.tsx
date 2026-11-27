@@ -1,6 +1,7 @@
 import {
   Activity,
   ListMusic,
+  Loader2,
   LogIn,
   LogOut,
   Maximize2,
@@ -28,6 +29,7 @@ type AppTab = 'metronome' | 'setlist' | 'sound' | 'session';
 const ACCESSIBILITY_STORAGE_KEY = 'syncbeat:accessibility:v1';
 
 const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
+  theme: 'dark',
   largeText: false,
   highContrast: false,
   reducedMotion: false,
@@ -41,7 +43,12 @@ function readInitialAccessibility(): AccessibilitySettings {
   try {
     const raw = window.localStorage.getItem(ACCESSIBILITY_STORAGE_KEY);
     if (!raw) return DEFAULT_ACCESSIBILITY;
-    return { ...DEFAULT_ACCESSIBILITY, ...(JSON.parse(raw) as Partial<AccessibilitySettings>) };
+    const parsed = JSON.parse(raw) as Partial<AccessibilitySettings>;
+    return {
+      ...DEFAULT_ACCESSIBILITY,
+      ...parsed,
+      theme: parsed.theme === 'light' ? 'light' : 'dark',
+    };
   } catch {
     return DEFAULT_ACCESSIBILITY;
   }
@@ -67,6 +74,7 @@ export default function App() {
   );
 
   const [accessibility, setAccessibility] = useState<AccessibilitySettings>(readInitialAccessibility);
+  const currentTheme = accessibility.theme === 'light' ? 'light' : 'dark';
 
   useEffect(() => {
     try {
@@ -75,6 +83,17 @@ export default function App() {
       // ignore
     }
   }, [accessibility]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const isDark = currentTheme === 'dark';
+    document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', isDark ? '#0A0B0E' : '#F4F5F8');
+    }
+  }, [currentTheme]);
 
   const auth = useAuth();
   const sync = useMetronomeSync(accessibility, auth.idToken);
@@ -178,12 +197,12 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-dvh bg-[#0A0B0E] text-[#F4F5F7] flex flex-col ${
+      className={`min-h-dvh bg-[#F4F5F8] text-[#111318] dark:bg-[#0A0B0E] dark:text-[#F4F5F7] flex flex-col transition-colors duration-200 ${
         accessibility.highContrast ? 'high-contrast' : ''
       } ${accessibility.reducedMotion ? 'reduced-motion' : ''}`}
     >
       {/* Top Bar (Strictly 3 zones: Brand — Nav Links — Primary Status/Action) */}
-      <header className="sticky top-0 z-30 h-14 pt-safe border-b border-white/[0.08] bg-[#0A0B0E]/90 backdrop-blur-md">
+      <header className="sticky top-0 z-30 h-13 sm:h-14 pt-safe border-b border-slate-200/80 bg-[#F4F5F8]/92 dark:border-white/[0.08] dark:bg-[#0A0B0E]/92 backdrop-blur-md">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-2 sm:gap-8 px-4 sm:px-6">
           {/* Zone 1: Brand Wordmark */}
           <button
@@ -192,7 +211,7 @@ export default function App() {
             className="inline-flex items-center gap-2.5 whitespace-nowrap shrink-0 text-left"
           >
             <SyncBeatLogo variant="mark" className="w-8 h-8" />
-            <span className="font-display text-lg font-extrabold tracking-tight text-white">
+            <span className="font-display text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
               SyncBeat
             </span>
           </button>
@@ -207,7 +226,9 @@ export default function App() {
                   type="button"
                   onClick={() => setActiveTab(item.id)}
                   className={`relative py-1 text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    active ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
+                    active
+                      ? 'text-slate-900 dark:text-white'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
                   }`}
                 >
                   {item.label}
@@ -224,7 +245,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('session')}
-              className="rounded-lg px-2 py-1 hover:bg-white/5 transition-colors"
+              className="rounded-lg px-2 py-1 hover:bg-slate-200/70 dark:hover:bg-white/5 transition-colors"
               title="Open Session & Sync Details"
             >
               <ConnectionBadge
@@ -235,36 +256,64 @@ export default function App() {
               />
             </button>
             <PWAInstallButton />
-            {!auth.loading &&
-              (auth.user ? (
-                <button
-                  type="button"
-                  onClick={() => void auth.signOut()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#181B23] px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors"
-                  title={`Signed in as ${auth.user.email ?? 'Musician'} — Click to sign out`}
-                >
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-300">
-                    {(auth.user.displayName || auth.user.email || 'M').slice(0, 1).toUpperCase()}
-                  </span>
-                  <LogOut className="w-3.5 h-3.5 text-zinc-400" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void auth.signInWithGoogle()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#181B23] px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors"
-                  title="Sign in with Google to save your sets across devices"
-                >
-                  <LogIn className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="hidden sm:inline">Sign in</span>
-                </button>
-              ))}
+            {auth.loading ? (
+              <div
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-400"
+                aria-label="Checking sign-in status"
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500 dark:text-amber-400" />
+                <span className="hidden sm:inline">Auth...</span>
+              </div>
+            ) : auth.user ? (
+              <button
+                type="button"
+                disabled={auth.signingOut}
+                onClick={() => void auth.signOut()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-200 dark:hover:bg-white/10 disabled:opacity-60 disabled:cursor-wait transition-colors"
+                title={
+                  auth.signingOut
+                    ? 'Signing out...'
+                    : `Signed in as ${auth.user.email ?? 'Musician'} — Click to sign out`
+                }
+              >
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                  {(auth.user.displayName || auth.user.email || 'M').slice(0, 1).toUpperCase()}
+                </span>
+                {auth.signingOut ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500 dark:text-zinc-400" />
+                ) : (
+                  <LogOut className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={auth.signingIn}
+                onClick={() => void auth.signInWithGoogle()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-200 dark:hover:bg-white/10 disabled:opacity-70 disabled:cursor-wait transition-colors"
+                title={
+                  auth.signingIn
+                    ? 'Signing in with Google...'
+                    : 'Sign in with Google to save your sets across devices'
+                }
+                aria-busy={auth.signingIn}
+              >
+                {auth.signingIn ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500 dark:text-amber-400" />
+                ) : (
+                  <LogIn className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+                )}
+                <span className="hidden sm:inline">
+                  {auth.signingIn ? 'Signing in...' : 'Sign in'}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setPerformanceMode(true)}
-              className="hidden sm:inline-flex md:hidden items-center gap-1.5 rounded-lg bg-[#181B23] px-3 py-1.5 text-xs font-medium text-white"
+              className="hidden sm:inline-flex md:hidden items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 dark:border-white/10 dark:bg-[#181B23] dark:text-white"
             >
-              <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+              <Maximize2 className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
               <span>Stage</span>
             </button>
           </div>
@@ -275,7 +324,7 @@ export default function App() {
       {(!isBrowserOnline || auth.authError || sync.statusBanner || (sync.isWireless && sync.connectionQuality === 'offline')) && (
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-3 space-y-2">
           {!isBrowserOnline && (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
               <div className="flex items-center gap-2">
                 <WifiOff className="w-4 h-4 shrink-0" />
                 <span>Offline Mode — Local metronome, click synthesis, and cached setlists remain active.</span>
@@ -284,12 +333,12 @@ export default function App() {
           )}
 
           {auth.authError && (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-200">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-xs text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
               <span>Sign-in notice: {auth.authError}</span>
               <button
                 type="button"
                 onClick={auth.clearAuthError}
-                className="p-1 text-rose-300 hover:text-white"
+                className="p-1 text-rose-600 hover:text-rose-900 dark:text-rose-300 dark:hover:text-white"
                 aria-label="Dismiss sign-in error"
               >
                 <X className="w-3.5 h-3.5" />
@@ -298,7 +347,7 @@ export default function App() {
           )}
 
           {sync.isWireless && sync.connectionQuality === 'offline' && isBrowserOnline && (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-200">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-xs text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
               <span>
                 CONNECTION LOST — Attempting to reconnect and resynchronize with session{' '}
                 <strong className="font-mono-tabular">{sync.session.sessionId}</strong>...
@@ -306,7 +355,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={sync.forceResync}
-                className="rounded-lg bg-white/10 px-2.5 py-1 font-semibold text-white hover:bg-white/20 shrink-0"
+                className="rounded-lg bg-rose-900/10 px-2.5 py-1 font-semibold text-rose-900 hover:bg-rose-900/20 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 shrink-0"
               >
                 Retry Now
               </button>
@@ -314,12 +363,12 @@ export default function App() {
           )}
 
           {sync.statusBanner && (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-white/15 bg-[#181B23] px-4 py-2.5 text-xs text-zinc-200">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs text-slate-800 dark:border-white/15 dark:bg-[#181B23] dark:text-zinc-200">
               <span>{sync.statusBanner}</span>
               <button
                 type="button"
                 onClick={sync.dismissBanner}
-                className="p-1 text-zinc-400 hover:text-white"
+                className="p-1 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white"
                 aria-label="Dismiss notification"
               >
                 <X className="w-3.5 h-3.5" />
@@ -330,13 +379,14 @@ export default function App() {
       )}
 
       {/* Main Content Workspace */}
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 pt-5 pb-24 md:pb-10">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 pt-4 sm:pt-5 pb-20 md:pb-10">
         {activeTab === 'metronome' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             <div className="lg:col-span-7 xl:col-span-8">
               <MetronomeStage
                 session={sync.session}
                 timeline={sync.timeline}
+                getTimelineSnapshot={sync.getTimelineSnapshot}
                 isHost={sync.isHost}
                 permissions={sync.permissions}
                 presets={sync.presets}
@@ -344,6 +394,8 @@ export default function App() {
                 localSelfMuted={sync.localSelfMuted}
                 audioSuspended={sync.audioSuspended}
                 tapCount={sync.tapCount}
+                tapBpmHistory={sync.tapBpmHistory}
+                onClearTapHistory={sync.clearTapBpmHistory}
                 onToggleLocalMute={sync.toggleLocalSelfMute}
                 onUnlockAudio={() => void sync.unlockAudio()}
                 onPlay={sync.play}
@@ -383,7 +435,7 @@ export default function App() {
         )}
 
         {activeTab === 'setlist' && (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-5xl mx-auto">
             <SetlistManager
               session={sync.session}
               setlists={sync.setlists}
@@ -398,7 +450,7 @@ export default function App() {
         )}
 
         {activeTab === 'sound' && (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-5xl mx-auto">
             <SoundAndSettings
               session={sync.session}
               timeline={sync.timeline}
@@ -418,7 +470,7 @@ export default function App() {
         )}
 
         {activeTab === 'session' && (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-5xl mx-auto">
             <SessionPanel
               session={sync.session}
               isWireless={sync.isWireless}
@@ -441,12 +493,12 @@ export default function App() {
         )}
       </main>
 
-      {/* Mobile Fixed Thumb-Zone Bottom Tab Bar (56px-64px, <= 15% mobile sticky cap) */}
+      {/* Mobile Fixed Thumb-Zone Bottom Tab Bar (56px, <= 13% aggregate mobile sticky chrome) */}
       <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-white/[0.08] bg-[#0A0B0E]/95 backdrop-blur-md pb-safe"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 dark:border-white/[0.08] dark:bg-[#0A0B0E]/95 backdrop-blur-md pb-safe"
         aria-label="Primary navigation"
       >
-        <div className="grid grid-cols-4 h-15">
+        <div className="grid grid-cols-4 h-14">
           {navItems.map((item) => {
             const active = activeTab === item.id;
             const Icon = item.Icon;
@@ -455,14 +507,17 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`relative flex flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors min-h-[44px] ${
-                  active ? 'text-amber-400' : 'text-zinc-400'
+                className={`relative flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors min-h-[44px] active:scale-95 ${
+                  active ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-zinc-400'
                 }`}
               >
-                <Icon className="w-5 h-5" />
+                {active && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-amber-500" />
+                )}
+                <Icon className="w-[19px] h-[19px]" />
                 <span>{item.label}</span>
                 {item.id === 'session' && sync.isWireless && (
-                  <span className="absolute top-2 right-1/4 h-2 w-2 rounded-full bg-emerald-400" />
+                  <span className="absolute top-2 right-1/4 h-2 w-2 rounded-full bg-emerald-500 dark:bg-emerald-400" />
                 )}
               </button>
             );
@@ -475,6 +530,7 @@ export default function App() {
         <PerformanceMode
           session={sync.session}
           timeline={sync.timeline}
+          getTimelineSnapshot={sync.getTimelineSnapshot}
           isWireless={sync.isWireless}
           isHost={sync.isHost}
           permissions={sync.permissions}

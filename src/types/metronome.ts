@@ -161,6 +161,7 @@ export interface MetronomeSessionState {
 export type ConnectionQuality = 'synced' | 'syncing' | 'unstable' | 'offline';
 
 export interface AccessibilitySettings {
+  theme?: 'dark' | 'light';
   largeText: boolean;
   highContrast: boolean;
   reducedMotion: boolean;

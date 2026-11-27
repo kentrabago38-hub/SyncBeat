@@ -16,6 +16,7 @@ import { VocalCountdown } from './VocalCountdown';
 interface PerformanceModeProps {
   session: MetronomeSessionState;
   timeline: TimelineSnapshot;
+  getTimelineSnapshot?: () => TimelineSnapshot;
   isWireless: boolean;
   isHost: boolean;
   permissions: RemotePermissions;
@@ -36,6 +37,7 @@ interface PerformanceModeProps {
 export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
   session,
   timeline,
+  getTimelineSnapshot,
   isWireless,
   isHost,
   permissions,
@@ -64,12 +66,12 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
   const subMeta = SUBDIVISIONS.find((s) => s.id === session.subdivision);
 
   return (
-    <div className="fixed inset-0 h-dvh z-50 flex flex-col justify-between bg-[#050608] text-white p-4 sm:p-8 pt-safe pb-safe select-none overflow-hidden">
+    <div className="fixed inset-0 h-dvh z-50 flex flex-col justify-between bg-[#F4F5F8] text-slate-900 dark:bg-[#050608] dark:text-white p-4 sm:p-8 pt-safe pb-safe select-none overflow-hidden transition-colors duration-200">
       {/* Minimal Top Bar */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <SyncBeatLogo variant="mark" className="w-7 h-7" />
-          <span className="font-display text-xs sm:text-sm font-bold tracking-wider uppercase text-zinc-400 truncate">
+          <span className="font-display text-xs sm:text-sm font-bold tracking-wider uppercase text-slate-500 dark:text-zinc-400 truncate">
             Stage View
           </span>
           <ConnectionBadge
@@ -84,10 +86,10 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
           <button
             type="button"
             onClick={onToggleLocalMute}
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border transition ${
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border transition active:scale-95 ${
               localSelfMuted
-                ? 'border-rose-500/40 bg-rose-500/15 text-rose-300'
-                : 'border-white/15 bg-white/5 text-zinc-200 hover:bg-white/10'
+                ? 'border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10'
             }`}
             aria-label={localSelfMuted ? 'Unmute local audio' : 'Mute local audio'}
           >
@@ -97,7 +99,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-xs font-semibold text-zinc-200 hover:bg-white/10 min-h-[44px]"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10 min-h-[44px] active:scale-95 transition"
           >
             <X className="w-4 h-4" />
             <span>Exit Stage</span>
@@ -110,20 +112,20 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
         <button
           type="button"
           onClick={onUnlockAudio}
-          className="mx-auto mt-2 flex items-center gap-2 rounded-xl border border-amber-400/50 bg-amber-500/15 px-4 py-2.5 text-xs font-semibold text-amber-200"
+          className="mx-auto mt-2 flex items-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/15 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
         >
-          <Volume2 className="w-4 h-4 text-amber-400" />
+          <Volume2 className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           <span>Tap to enable stage audio</span>
         </button>
       )}
 
       {/* Center Stage: Huge BPM & Beat Orbs */}
       <div className="flex flex-col items-center justify-center text-center my-auto py-2">
-        <div className="font-display font-extrabold leading-none tracking-tight tabular-nums text-[clamp(4.75rem,18vw,11.5rem)] text-white">
+        <div className="font-display font-extrabold leading-none tracking-tight tabular-nums text-[clamp(4.75rem,18vw,11.5rem)] text-slate-900 dark:text-white">
           {Number.isInteger(session.bpm) ? session.bpm : session.bpm.toFixed(1)}
         </div>
 
-        <div className="mt-2 flex items-center gap-3 font-mono-tabular text-lg sm:text-2xl font-semibold text-zinc-400">
+        <div className="mt-2 flex items-center gap-3 font-mono-tabular text-lg sm:text-2xl font-semibold text-slate-500 dark:text-zinc-400">
           <span>
             {session.timeSignature.numerator}/{session.timeSignature.denominator}
           </span>
@@ -137,6 +139,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
             accentPattern={session.accentPattern}
             subdivision={session.subdivision}
             timeline={timeline}
+            getTimelineSnapshot={getTimelineSnapshot}
             canEditAccents={false}
             visualFlash={accessibility.visualFlash}
             large={true}
@@ -146,6 +149,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
             profile={session.clickProfile}
             bpm={session.bpm}
             beatsPerBar={session.timeSignature.numerator}
+            subdivision={session.subdivision}
             isHost={isHost}
             timeline={timeline}
             onUpdateClickProfile={() => undefined}
@@ -155,15 +159,15 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
       </div>
 
       {/* Bottom Stage Cue + Minimal Transport */}
-      <div className="mx-auto w-full max-w-3xl flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-white/10 pt-4">
+      <div className="mx-auto w-full max-w-3xl flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200 dark:border-white/10 pt-4">
         <div className="text-center sm:text-left min-w-0 max-w-full">
-          <div className="font-display text-xl sm:text-3xl font-bold text-white truncate">
+          <div className="font-display text-xl sm:text-3xl font-bold text-slate-900 dark:text-white truncate">
             {activeSong ? activeSong.songName : session.name}
           </div>
-          <div className="mt-0.5 text-xs sm:text-sm font-medium text-zinc-400 truncate">
+          <div className="mt-0.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-zinc-400 truncate">
             {nextSong ? (
               <span>
-                NEXT: <strong className="text-amber-400">{nextSong.songName}</strong> ·{' '}
+                NEXT: <strong className="text-amber-600 dark:text-amber-400">{nextSong.songName}</strong> ·{' '}
                 <span className="font-mono-tabular">{nextSong.bpm} BPM</span>
               </span>
             ) : (
@@ -171,7 +175,9 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
             )}
           </div>
           {activeSong?.notes && (
-            <div className="mt-1 text-xs text-amber-300/85 truncate">{activeSong.notes}</div>
+            <div className="mt-1 text-xs text-amber-700 dark:text-amber-300/85 truncate">
+              {activeSong.notes}
+            </div>
           )}
         </div>
 
@@ -181,7 +187,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
               type="button"
               disabled={session.activeSongIndex <= 0}
               onClick={() => onSelectSong(session.activeSongIndex - 1)}
-              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5 text-white hover:bg-white/10 disabled:opacity-30"
+              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 disabled:opacity-30"
               aria-label="Previous song"
             >
               <ChevronLeft className="w-6 h-6" />
@@ -194,7 +200,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
               onClick={timeline.isPlaying ? onPause : onPlay}
               className={`flex h-14 px-8 items-center justify-center gap-2 rounded-2xl font-display text-base font-bold ${
                 timeline.isPlaying
-                  ? 'bg-white text-zinc-950'
+                  ? 'bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-zinc-950'
                   : 'bg-amber-500 text-zinc-950'
               }`}
             >
@@ -217,7 +223,7 @@ export const PerformanceMode: React.FC<PerformanceModeProps> = React.memo(({
               type="button"
               disabled={session.activeSongIndex >= session.setlist.length - 1}
               onClick={() => onSelectSong(session.activeSongIndex + 1)}
-              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/5 text-white hover:bg-white/10 disabled:opacity-30"
+              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 disabled:opacity-30"
               aria-label="Next song"
             >
               <ChevronRight className="w-6 h-6" />

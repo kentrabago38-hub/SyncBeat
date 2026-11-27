@@ -23,102 +23,141 @@ interface FormantFrame {
   f3: number;
   durSec: number;
   pitchMul?: number;
-  voiced?: boolean;
-  noiseGain?: number;
+  voiced?: number; // 0..1 glottal voicing mix
+  breath?: number; // 0..1 natural aspiration breathiness
+  noiseGain?: number; // consonant fricative/plosive level
+  noiseFreq?: number; // consonant center Hz
+  noiseQ?: number; // consonant resonance Q (lower = broader air, higher = sharper 's'/'t')
+  amp?: number; // frame envelope multiplier
 }
 
+/**
+ * Calibrated human vocal tract phoneme trajectories (Hz & timing tuned for studio clarity).
+ * Plosive bursts ('t', 'k') & sibilants ('s', 'f', 'th') use crisp unvoiced air excitation
+ * feeding into smooth cascade vowel transitions so every beat ('1, 2, 3, 4') and subdivision
+ * ('and', 'e and a') cuts cleanly through dense band & IEM mixes.
+ */
 const VOCAL_RECIPES: Record<string, FormantFrame[]> = {
   one: [
-    { f1: 310, f2: 720, f3: 2300, durSec: 0.045, pitchMul: 1.0, voiced: true },
-    { f1: 640, f2: 1180, f3: 2420, durSec: 0.08, pitchMul: 1.06, voiced: true },
-    { f1: 290, f2: 1480, f3: 2450, durSec: 0.045, pitchMul: 0.96, voiced: true },
+    // /w/ labial glide -> open /ʌ/ -> clean /n/ nasal resonance
+    { f1: 310, f2: 720, f3: 2300, durSec: 0.042, pitchMul: 0.96, voiced: 1, breath: 0.06, amp: 0.85 },
+    { f1: 640, f2: 1180, f3: 2480, durSec: 0.092, pitchMul: 1.05, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 310, f2: 1480, f3: 2420, durSec: 0.046, pitchMul: 0.94, voiced: 1, breath: 0.02, amp: 0.72 },
   ],
   two: [
-    { f1: 450, f2: 1800, f3: 2700, durSec: 0.025, voiced: false, noiseGain: 0.58 },
-    { f1: 310, f2: 870, f3: 2240, durSec: 0.13, pitchMul: 1.04, voiced: true },
+    // Crisp alveolar stop burst /t/ -> rounded pure /uː/
+    { f1: 380, f2: 1850, f3: 2900, durSec: 0.007, pitchMul: 1.06, voiced: 0, noiseGain: 0.02, noiseFreq: 3600, noiseQ: 1.4, amp: 0.1 },
+    { f1: 380, f2: 1850, f3: 2900, durSec: 0.022, pitchMul: 1.06, voiced: 0.05, noiseGain: 0.42, noiseFreq: 3900, noiseQ: 1.6, amp: 1.0 },
+    { f1: 300, f2: 860, f3: 2240, durSec: 0.132, pitchMul: 1.03, voiced: 1, breath: 0.05, noiseGain: 0.04, noiseFreq: 2600, noiseQ: 1.2, amp: 1.0 },
   ],
   three: [
-    { f1: 420, f2: 1650, f3: 2550, durSec: 0.032, voiced: false, noiseGain: 0.36 },
-    { f1: 350, f2: 1280, f3: 1760, durSec: 0.035, pitchMul: 0.98, voiced: true },
-    { f1: 280, f2: 2260, f3: 2980, durSec: 0.095, pitchMul: 1.05, voiced: true },
+    // Soft dental /θ/ -> distinctive /r/ F3 dip (~1620Hz) -> bright clear /iː/
+    { f1: 400, f2: 1650, f3: 2600, durSec: 0.028, pitchMul: 1.0, voiced: 0.1, noiseGain: 0.28, noiseFreq: 3200, noiseQ: 1.1, amp: 0.9 },
+    { f1: 360, f2: 1280, f3: 1620, durSec: 0.038, pitchMul: 1.01, voiced: 1, breath: 0.06, amp: 0.96 },
+    { f1: 285, f2: 2260, f3: 3020, durSec: 0.105, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
   four: [
-    { f1: 480, f2: 1100, f3: 2400, durSec: 0.036, voiced: false, noiseGain: 0.34 },
-    { f1: 570, f2: 840, f3: 2410, durSec: 0.092, pitchMul: 1.04, voiced: true },
-    { f1: 460, f2: 1240, f3: 1750, durSec: 0.045, pitchMul: 0.95, voiced: true },
+    // Crisp labiodental /f/ -> rich rounded /ɔː/ -> subtle /r/ F3 dip
+    { f1: 460, f2: 1120, f3: 2400, durSec: 0.030, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.28, noiseFreq: 2350, noiseQ: 1.0, amp: 0.9 },
+    { f1: 560, f2: 860, f3: 2420, durSec: 0.095, pitchMul: 1.04, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 450, f2: 1220, f3: 1680, durSec: 0.046, pitchMul: 0.95, voiced: 1, breath: 0.04, amp: 0.8 },
   ],
   five: [
-    { f1: 480, f2: 1150, f3: 2400, durSec: 0.035, voiced: false, noiseGain: 0.34 },
-    { f1: 730, f2: 1100, f3: 2440, durSec: 0.075, pitchMul: 1.04, voiced: true },
-    { f1: 390, f2: 2020, f3: 2640, durSec: 0.055, pitchMul: 0.98, voiced: true },
+    // Crisp /f/ -> wide /aɪ/ diphthong -> voiced /v/ tail
+    { f1: 460, f2: 1150, f3: 2400, durSec: 0.028, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.26, noiseFreq: 2400, noiseQ: 1.0, amp: 0.9 },
+    { f1: 730, f2: 1120, f3: 2480, durSec: 0.072, pitchMul: 1.05, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 410, f2: 1980, f3: 2660, durSec: 0.048, pitchMul: 1.01, voiced: 1, breath: 0.04, amp: 0.92 },
+    { f1: 320, f2: 1400, f3: 2380, durSec: 0.022, pitchMul: 0.94, voiced: 0.85, noiseGain: 0.09, noiseFreq: 2100, noiseQ: 1.1, amp: 0.65 },
   ],
   six: [
-    { f1: 400, f2: 1900, f3: 2600, durSec: 0.045, voiced: false, noiseGain: 0.52 },
-    { f1: 400, f2: 1920, f3: 2560, durSec: 0.075, pitchMul: 1.04, voiced: true },
-    { f1: 400, f2: 1850, f3: 2600, durSec: 0.038, voiced: false, noiseGain: 0.45 },
+    // Tight clean /s/ -> bright /ɪ/ -> crisp /ks/ release
+    { f1: 400, f2: 1900, f3: 2800, durSec: 0.038, pitchMul: 1.02, voiced: 0, noiseGain: 0.42, noiseFreq: 4800, noiseQ: 2.2, amp: 0.95 },
+    { f1: 405, f2: 1960, f3: 2620, durSec: 0.076, pitchMul: 1.05, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 400, f2: 1850, f3: 2700, durSec: 0.032, pitchMul: 0.98, voiced: 0, noiseGain: 0.34, noiseFreq: 4500, noiseQ: 2.0, amp: 0.88 },
   ],
   seven: [
-    { f1: 420, f2: 1850, f3: 2550, durSec: 0.04, voiced: false, noiseGain: 0.46 },
-    { f1: 550, f2: 1770, f3: 2490, durSec: 0.075, pitchMul: 1.06, voiced: true },
-    { f1: 490, f2: 1350, f3: 2350, durSec: 0.055, pitchMul: 0.95, voiced: true },
+    // Clean /s/ -> /ɛ/ -> voiced /v/ -> /ən/
+    { f1: 420, f2: 1850, f3: 2700, durSec: 0.034, pitchMul: 1.02, voiced: 0, noiseGain: 0.38, noiseFreq: 4700, noiseQ: 2.2, amp: 0.92 },
+    { f1: 560, f2: 1780, f3: 2520, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 360, f2: 1420, f3: 2380, durSec: 0.022, pitchMul: 0.98, voiced: 0.88, noiseGain: 0.08, noiseFreq: 2200, noiseQ: 1.1, amp: 0.8 },
+    { f1: 460, f2: 1380, f3: 2350, durSec: 0.044, pitchMul: 0.95, voiced: 1, breath: 0.03, amp: 0.78 },
   ],
   eight: [
-    { f1: 490, f2: 2040, f3: 2640, durSec: 0.075, pitchMul: 1.05, voiced: true },
-    { f1: 340, f2: 2220, f3: 2820, durSec: 0.045, pitchMul: 1.02, voiced: true },
-    { f1: 450, f2: 1800, f3: 2700, durSec: 0.022, voiced: false, noiseGain: 0.46 },
+    // Bright /eɪ/ glide -> tight stop + crisp /t/ release
+    { f1: 500, f2: 1980, f3: 2620, durSec: 0.074, pitchMul: 1.05, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 330, f2: 2240, f3: 2860, durSec: 0.044, pitchMul: 1.02, voiced: 1, breath: 0.03, amp: 0.88 },
+    { f1: 380, f2: 1850, f3: 2800, durSec: 0.010, pitchMul: 1.0, voiced: 0, noiseGain: 0.02, noiseFreq: 3500, noiseQ: 1.4, amp: 0.1 },
+    { f1: 440, f2: 1900, f3: 2850, durSec: 0.022, pitchMul: 1.0, voiced: 0, noiseGain: 0.38, noiseFreq: 3900, noiseQ: 1.7, amp: 0.92 },
   ],
   nine: [
-    { f1: 280, f2: 1520, f3: 2420, durSec: 0.032, pitchMul: 0.96, voiced: true },
-    { f1: 720, f2: 1140, f3: 2450, durSec: 0.075, pitchMul: 1.05, voiced: true },
-    { f1: 410, f2: 1960, f3: 2600, durSec: 0.05, pitchMul: 0.96, voiced: true },
+    { f1: 300, f2: 1520, f3: 2420, durSec: 0.032, pitchMul: 0.96, voiced: 1, breath: 0.03, amp: 0.85 },
+    { f1: 720, f2: 1120, f3: 2460, durSec: 0.076, pitchMul: 1.06, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 390, f2: 1960, f3: 2620, durSec: 0.048, pitchMul: 0.96, voiced: 1, breath: 0.03, amp: 0.8 },
   ],
   ten: [
-    { f1: 450, f2: 1800, f3: 2700, durSec: 0.024, voiced: false, noiseGain: 0.56 },
-    { f1: 550, f2: 1770, f3: 2490, durSec: 0.085, pitchMul: 1.04, voiced: true },
-    { f1: 280, f2: 1500, f3: 2420, durSec: 0.04, pitchMul: 0.95, voiced: true },
+    { f1: 440, f2: 1880, f3: 2800, durSec: 0.022, pitchMul: 1.05, voiced: 0.05, noiseGain: 0.4, noiseFreq: 3900, noiseQ: 1.6, amp: 0.98 },
+    { f1: 560, f2: 1780, f3: 2520, durSec: 0.086, pitchMul: 1.04, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 300, f2: 1480, f3: 2420, durSec: 0.042, pitchMul: 0.95, voiced: 1, breath: 0.02, amp: 0.76 },
   ],
   eleven: [
-    { f1: 390, f2: 1920, f3: 2560, durSec: 0.04, pitchMul: 0.96, voiced: true },
-    { f1: 550, f2: 1770, f3: 2490, durSec: 0.075, pitchMul: 1.06, voiced: true },
-    { f1: 480, f2: 1360, f3: 2360, durSec: 0.045, pitchMul: 0.95, voiced: true },
+    { f1: 390, f2: 1920, f3: 2580, durSec: 0.04, pitchMul: 0.97, voiced: 1, breath: 0.04, amp: 0.88 },
+    { f1: 560, f2: 1780, f3: 2520, durSec: 0.076, pitchMul: 1.06, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 460, f2: 1360, f3: 2360, durSec: 0.046, pitchMul: 0.95, voiced: 1, breath: 0.03, amp: 0.8 },
   ],
   twelve: [
-    { f1: 450, f2: 1800, f3: 2700, durSec: 0.024, voiced: false, noiseGain: 0.52 },
-    { f1: 320, f2: 880, f3: 2250, durSec: 0.035, pitchMul: 1.0, voiced: true },
-    { f1: 550, f2: 1760, f3: 2480, durSec: 0.095, pitchMul: 1.04, voiced: true },
+    { f1: 440, f2: 1880, f3: 2800, durSec: 0.022, pitchMul: 1.04, voiced: 0.05, noiseGain: 0.36, noiseFreq: 3800, noiseQ: 1.6, amp: 0.95 },
+    { f1: 320, f2: 880, f3: 2260, durSec: 0.036, pitchMul: 1.0, voiced: 1, breath: 0.04, amp: 0.92 },
+    { f1: 560, f2: 1760, f3: 2500, durSec: 0.092, pitchMul: 1.04, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
   thirteen: [
-    { f1: 420, f2: 1650, f3: 2550, durSec: 0.03, voiced: false, noiseGain: 0.36 },
-    { f1: 490, f2: 1350, f3: 1750, durSec: 0.065, pitchMul: 0.98, voiced: true },
-    { f1: 280, f2: 2260, f3: 2980, durSec: 0.075, pitchMul: 1.05, voiced: true },
+    { f1: 420, f2: 1650, f3: 2550, durSec: 0.026, pitchMul: 1.0, voiced: 0.1, noiseGain: 0.25, noiseFreq: 3100, noiseQ: 1.1, amp: 0.9 },
+    { f1: 490, f2: 1350, f3: 1680, durSec: 0.062, pitchMul: 0.98, voiced: 1, breath: 0.05, amp: 0.95 },
+    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
   fourteen: [
-    { f1: 480, f2: 1100, f3: 2400, durSec: 0.032, voiced: false, noiseGain: 0.32 },
-    { f1: 570, f2: 840, f3: 2410, durSec: 0.065, pitchMul: 1.0, voiced: true },
-    { f1: 280, f2: 2260, f3: 2980, durSec: 0.075, pitchMul: 1.06, voiced: true },
+    { f1: 460, f2: 1120, f3: 2400, durSec: 0.024, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.24, noiseFreq: 2300, noiseQ: 1.0, amp: 0.9 },
+    { f1: 560, f2: 860, f3: 2420, durSec: 0.062, pitchMul: 1.0, voiced: 1, breath: 0.04, amp: 0.96 },
+    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
   fifteen: [
-    { f1: 480, f2: 1150, f3: 2400, durSec: 0.03, voiced: false, noiseGain: 0.32 },
-    { f1: 400, f2: 1920, f3: 2560, durSec: 0.055, pitchMul: 0.98, voiced: true },
-    { f1: 280, f2: 2260, f3: 2980, durSec: 0.075, pitchMul: 1.06, voiced: true },
+    { f1: 460, f2: 1150, f3: 2400, durSec: 0.024, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.24, noiseFreq: 2350, noiseQ: 1.0, amp: 0.9 },
+    { f1: 405, f2: 1940, f3: 2580, durSec: 0.054, pitchMul: 0.98, voiced: 1, breath: 0.04, amp: 0.94 },
+    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
   sixteen: [
-    { f1: 400, f2: 1900, f3: 2600, durSec: 0.035, voiced: false, noiseGain: 0.45 },
-    { f1: 400, f2: 1920, f3: 2560, durSec: 0.05, pitchMul: 0.98, voiced: true },
-    { f1: 280, f2: 2260, f3: 2980, durSec: 0.075, pitchMul: 1.06, voiced: true },
+    { f1: 400, f2: 1900, f3: 2700, durSec: 0.030, pitchMul: 1.02, voiced: 0, noiseGain: 0.36, noiseFreq: 4600, noiseQ: 2.1, amp: 0.92 },
+    { f1: 405, f2: 1940, f3: 2580, durSec: 0.052, pitchMul: 0.98, voiced: 1, breath: 0.04, amp: 0.94 },
+    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
-  and: [{ f1: 660, f2: 1720, f3: 2410, durSec: 0.085, pitchMul: 0.94, voiced: true }],
-  e: [{ f1: 280, f2: 2250, f3: 2950, durSec: 0.075, pitchMul: 0.96, voiced: true }],
-  a: [{ f1: 540, f2: 1320, f3: 2400, durSec: 0.075, pitchMul: 0.92, voiced: true }],
+  // Crisp, light subdivision syllables (pitched higher and tighter so 1-2-3-4 remains primary)
+  and: [
+    { f1: 660, f2: 1750, f3: 2480, durSec: 0.046, pitchMul: 1.12, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 350, f2: 1500, f3: 2380, durSec: 0.030, pitchMul: 1.06, voiced: 1, breath: 0.03, amp: 0.72 },
+  ],
+  e: [
+    { f1: 285, f2: 2280, f3: 3020, durSec: 0.062, pitchMul: 1.18, voiced: 1, breath: 0.05, amp: 1.0 },
+  ],
+  a: [
+    { f1: 630, f2: 1240, f3: 2440, durSec: 0.062, pitchMul: 1.04, voiced: 1, breath: 0.05, amp: 1.0 },
+  ],
   trip: [
-    { f1: 450, f2: 1800, f3: 2700, durSec: 0.02, voiced: false, noiseGain: 0.45 },
-    { f1: 400, f2: 1920, f3: 2560, durSec: 0.065, pitchMul: 0.96, voiced: true },
+    { f1: 440, f2: 1850, f3: 2700, durSec: 0.016, pitchMul: 1.06, voiced: 0.05, noiseGain: 0.3, noiseFreq: 3600, noiseQ: 1.5, amp: 0.92 },
+    { f1: 405, f2: 1920, f3: 2560, durSec: 0.056, pitchMul: 1.08, voiced: 1, breath: 0.04, amp: 1.0 },
   ],
-  let: [{ f1: 540, f2: 1760, f3: 2480, durSec: 0.075, pitchMul: 0.94, voiced: true }],
+  let: [
+    { f1: 530, f2: 1740, f3: 2480, durSec: 0.056, pitchMul: 1.04, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 420, f2: 1850, f3: 2700, durSec: 0.014, pitchMul: 1.0, voiced: 0, noiseGain: 0.24, noiseFreq: 3700, noiseQ: 1.6, amp: 0.8 },
+  ],
+  ta: [
+    { f1: 440, f2: 1820, f3: 2700, durSec: 0.014, pitchMul: 1.06, voiced: 0.05, noiseGain: 0.28, noiseFreq: 3600, noiseQ: 1.5, amp: 0.92 },
+    { f1: 580, f2: 1280, f3: 2420, durSec: 0.052, pitchMul: 1.08, voiced: 1, breath: 0.04, amp: 1.0 },
+  ],
+  la: [{ f1: 580, f2: 1240, f3: 2420, durSec: 0.06, pitchMul: 1.1, voiced: 1, breath: 0.04, amp: 1.0 }],
+  li: [{ f1: 300, f2: 2180, f3: 2880, durSec: 0.06, pitchMul: 1.14, voiced: 1, breath: 0.04, amp: 1.0 }],
   go: [
-    { f1: 320, f2: 1350, f3: 2300, durSec: 0.022, pitchMul: 1.02, voiced: true },
-    { f1: 500, f2: 900, f3: 2350, durSec: 0.075, pitchMul: 1.12, voiced: true },
-    { f1: 360, f2: 760, f3: 2250, durSec: 0.065, pitchMul: 1.05, voiced: true },
+    { f1: 320, f2: 1360, f3: 2320, durSec: 0.022, pitchMul: 1.02, voiced: 1, breath: 0.04, amp: 0.9 },
+    { f1: 510, f2: 910, f3: 2380, durSec: 0.078, pitchMul: 1.12, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 360, f2: 760, f3: 2260, durSec: 0.065, pitchMul: 1.05, voiced: 1, breath: 0.03, amp: 0.82 },
   ],
 };
 
@@ -127,32 +166,62 @@ export interface ScheduleVocalOptions {
   bpm: number;
   isAccent?: boolean;
   isSubdivision?: boolean;
+  subdivisionsPerBeat?: number;
   pitchBoost?: number;
+  destination?: AudioNode;
+}
+
+interface ActiveVoice {
+  source: AudioBufferSourceNode;
+  gain: GainNode;
+}
+
+interface BiquadState {
+  x1: number;
+  x2: number;
+  y1: number;
+  y2: number;
 }
 
 /**
- * AudioVocalizer synthesizes and schedules sample-accurate vocal count numbers
- * ('1', '2', '3', '4', ...) directly on a Web Audio API AudioContext timeline.
+ * AudioVocalizer synthesizes and schedules sample-accurate, IEM-safe vocal count
+ * cues ('1', '2', '3', '4', ...) directly on a Web Audio API AudioContext timeline.
+ *
+ * Uses a natural Rosenberg glottal pulse + cascade formant vocal tract + shaped consonant
+ * articulation and vocal presence EQ (~2.6kHz) so every beat & subdivision is warm,
+ * studio-polished, intelligible, and completely free of inter-beat buzz.
  */
 export class AudioVocalizer {
   private bufferCache = new Map<string, AudioBuffer>();
-  private activeSources = new Set<AudioBufferSourceNode>();
+  private activeVoices = new Set<ActiveVoice>();
   private cachedSampleRate = 0;
 
   public getBeatToken(beatNumberOneBased: number): string {
     return NUMBER_TOKENS[beatNumberOneBased] ?? 'one';
   }
 
-  public stopAll(): void {
-    for (const source of this.activeSources) {
+  public stopAll(ctx?: AudioContext): void {
+    const now = ctx ? ctx.currentTime : null;
+    for (const voice of this.activeVoices) {
       try {
-        source.stop();
-        source.disconnect();
+        if (now !== null) {
+          voice.gain.gain.cancelScheduledValues(now);
+          voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
+          voice.gain.gain.linearRampToValueAtTime(0, now + 0.012);
+          voice.source.stop(now + 0.018);
+        } else {
+          voice.gain.gain.value = 0;
+          voice.source.stop();
+          voice.source.disconnect();
+          voice.gain.disconnect();
+        }
       } catch {
         // Ignore already-stopped nodes
       }
     }
-    this.activeSources.clear();
+    if (now === null) {
+      this.activeVoices.clear();
+    }
   }
 
   public preloadStandardCounts(ctx: AudioContext): void {
@@ -160,6 +229,8 @@ export class AudioVocalizer {
       this.getOrCreateBuffer(ctx, this.getBeatToken(num));
     }
     this.getOrCreateBuffer(ctx, 'and');
+    this.getOrCreateBuffer(ctx, 'e');
+    this.getOrCreateBuffer(ctx, 'a');
   }
 
   public scheduleBeatCount(
@@ -178,39 +249,66 @@ export class AudioVocalizer {
     when: number,
     options: ScheduleVocalOptions
   ): void {
-    const { volume, bpm, isAccent = false, isSubdivision = false, pitchBoost } = options;
+    const {
+      volume,
+      bpm,
+      isAccent = false,
+      isSubdivision = false,
+      subdivisionsPerBeat = 1,
+      pitchBoost,
+      destination,
+    } = options;
     if (volume <= 0.005) return;
 
     const buffer = this.getOrCreateBuffer(ctx, token);
     const source = ctx.createBufferSource();
     source.buffer = buffer;
 
-    const rate =
-      pitchBoost ?? (isAccent ? 1.09 : isSubdivision ? 0.94 : 1.0);
+    const subDiv = Math.max(1, subdivisionsPerBeat);
+    const slotSec = 60 / Math.max(20, bpm) / subDiv;
+    // Slightly tighten vocal speed at high tempos or dense 1/16 subdivisions so full word finishes cleanly
+    const tempoFitBoost =
+      buffer.duration > slotSec * 0.85
+        ? Math.min(1.24, Math.max(1.0, buffer.duration / (slotSec * 0.88)))
+        : 1.0;
+
+    const baseRate = pitchBoost ?? (isAccent ? 1.055 : isSubdivision ? 1.02 : 1.0);
+    const rate = baseRate * tempoFitBoost;
     source.playbackRate.setValueAtTime(rate, when);
 
-    const maxPlaySec = Math.max(
-      0.085,
-      Math.min(buffer.duration, (60 / bpm) * (isSubdivision ? 0.45 : 0.88))
-    );
+    const effectiveBufferDur = buffer.duration / rate;
+    const capRatio = subDiv > 1 ? 0.91 : isSubdivision ? 0.42 : 0.78;
+    const maxPlaySec = Math.max(0.045, Math.min(effectiveBufferDur, slotSec * capRatio));
 
     const gainNode = ctx.createGain();
-    const level = Math.min(1, Math.max(0.0001, volume));
-    gainNode.gain.setValueAtTime(0.0001, when);
-    gainNode.gain.linearRampToValueAtTime(level, when + 0.005);
-    gainNode.gain.setValueAtTime(level, when + Math.max(0.02, maxPlaySec - 0.025));
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, when + maxPlaySec);
+    const scale = isSubdivision ? 0.64 : isAccent ? 1.05 : 0.96;
+    const level = Math.min(0.92, Math.max(0.0001, volume * scale));
+    const fadeInEnd = when + Math.min(0.006, maxPlaySec * 0.18);
+    const fadeOutStart = when + Math.max(0.016, maxPlaySec - 0.022);
+    const fadeOutEnd = when + maxPlaySec;
+
+    gainNode.gain.setValueAtTime(0, when);
+    gainNode.gain.linearRampToValueAtTime(level, fadeInEnd);
+    gainNode.gain.setValueAtTime(level, fadeOutStart);
+    gainNode.gain.linearRampToValueAtTime(0, fadeOutEnd);
 
     source.connect(gainNode);
-    gainNode.connect(ctx.destination);
+    gainNode.connect(destination ?? ctx.destination);
 
-    this.activeSources.add(source);
+    const voice: ActiveVoice = { source, gain: gainNode };
+    this.activeVoices.add(voice);
     source.onended = () => {
-      this.activeSources.delete(source);
+      this.activeVoices.delete(voice);
+      try {
+        source.disconnect();
+        gainNode.disconnect();
+      } catch {
+        // ignore
+      }
     };
 
     source.start(when);
-    source.stop(when + maxPlaySec + 0.01);
+    source.stop(fadeOutEnd + 0.015);
   }
 
   public scheduleBarCountdown(
@@ -230,12 +328,18 @@ export class AudioVocalizer {
     }
   }
 
-  public previewBarCount(ctx: AudioContext, volume = 0.9, bpm = 120): void {
-    this.stopAll();
+  public previewBarCount(
+    ctx: AudioContext,
+    volume = 0.9,
+    bpm = 120,
+    destination?: AudioNode
+  ): void {
+    this.stopAll(ctx);
     this.preloadStandardCounts(ctx);
-    this.scheduleBarCountdown(ctx, 4, ctx.currentTime + 0.02, {
+    this.scheduleBarCountdown(ctx, 4, ctx.currentTime + 0.03, {
       volume,
       bpm,
+      destination,
     });
   }
 
@@ -250,41 +354,46 @@ export class AudioVocalizer {
     if (existing) return existing;
 
     const frames = VOCAL_RECIPES[key] ?? VOCAL_RECIPES.one;
-    const buffer = this.renderFormantBuffer(ctx, frames);
+    const buffer = this.renderCascadeVocalBuffer(ctx, frames);
     this.bufferCache.set(key, buffer);
     return buffer;
   }
 
-  private renderFormantBuffer(ctx: AudioContext, frames: FormantFrame[]): AudioBuffer {
+  private renderCascadeVocalBuffer(ctx: AudioContext, frames: FormantFrame[]): AudioBuffer {
     const sr = ctx.sampleRate;
-    const totalDur = frames.reduce((acc, f) => acc + f.durSec, 0);
-    const totalSamples = Math.max(1, Math.floor(sr * totalDur));
+    const activeDur = frames.reduce((acc, f) => acc + f.durSec, 0);
+    const activeSamples = Math.max(1, Math.floor(sr * activeDur));
+    // 14ms pure zero silence padding so tail never clips
+    const padSamples = Math.floor(sr * 0.014);
+    const totalSamples = activeSamples + padSamples;
     const buffer = ctx.createBuffer(1, totalSamples, sr);
     const out = buffer.getChannelData(0);
 
-    const basePitchHz = 148;
+    // Warm studio baritone-tenor fundamental (~152 Hz) with subtle prosody arc
+    const basePitchHz = 152;
     let phase = 0;
+    let prevGlottal = 0;
     let cursor = 0;
 
-    const makeState = () => ({ x1: 0, x2: 0, y1: 0, y2: 0 });
-    const r1 = makeState();
-    const r2 = makeState();
-    const r3 = makeState();
+    const makeState = (): BiquadState => ({ x1: 0, x2: 0, y1: 0, y2: 0 });
+    const f1State = makeState();
+    const f2State = makeState();
+    const f3State = makeState();
+    const presenceState = makeState();
+    const consonantBp = makeState();
+    const hpState = makeState();
+    const lpState = makeState();
 
-    const stepBiquad = (
-      state: { x1: number; x2: number; y1: number; y2: number },
-      x: number,
-      freq: number,
-      bw: number
-    ) => {
-      const clampedFreq = Math.min(sr * 0.45, Math.max(60, freq));
+    // Normalized bandpass resonator (0dB peak gain at resonance center)
+    const stepResonator = (state: BiquadState, x: number, freq: number, bwHz: number): number => {
+      const clampedFreq = Math.min(sr * 0.43, Math.max(90, freq));
+      const q = Math.max(1.4, clampedFreq / Math.max(40, bwHz));
       const w0 = (2 * Math.PI * clampedFreq) / sr;
       const sinW0 = Math.sin(w0);
-      const alpha = sinW0 * Math.sinh((Math.LN2 / 2) * (bw / clampedFreq) * (w0 / sinW0));
+      const cosW0 = Math.cos(w0);
+      const alpha = sinW0 / (2 * q);
       const a0 = 1 + alpha;
-      const y =
-        (alpha * x - alpha * state.x2 - -2 * Math.cos(w0) * state.y1 - (1 - alpha) * state.y2) /
-        a0;
+      const y = (alpha * x - alpha * state.x2 + 2 * cosW0 * state.y1 - (1 - alpha) * state.y2) / a0;
       state.x2 = state.x1;
       state.x1 = x;
       state.y2 = state.y1;
@@ -292,60 +401,190 @@ export class AudioVocalizer {
       return y;
     };
 
+    // Peaking EQ filter (+dB presence boost around 2.6kHz for speech intelligibility)
+    const stepPeaking = (state: BiquadState, x: number, freq: number, q: number, gainDb: number): number => {
+      const A = Math.pow(10, gainDb / 40);
+      const w0 = (2 * Math.PI * Math.min(sr * 0.43, freq)) / sr;
+      const sinW0 = Math.sin(w0);
+      const cosW0 = Math.cos(w0);
+      const alpha = sinW0 / (2 * q);
+      const b0 = 1 + alpha * A;
+      const b1 = -2 * cosW0;
+      const b2 = 1 - alpha * A;
+      const a0 = 1 + alpha / A;
+      const a1 = -2 * cosW0;
+      const a2 = 1 - alpha / A;
+      const y = (b0 * x + b1 * state.x1 + b2 * state.x2 - a1 * state.y1 - a2 * state.y2) / a0;
+      state.x2 = state.x1;
+      state.x1 = x;
+      state.y2 = state.y1;
+      state.y1 = y;
+      return y;
+    };
+
+    const stepHighpass = (state: BiquadState, x: number, freq: number): number => {
+      const w0 = (2 * Math.PI * freq) / sr;
+      const sinW0 = Math.sin(w0);
+      const cosW0 = Math.cos(w0);
+      const alpha = sinW0 / Math.SQRT2;
+      const a0 = 1 + alpha;
+      const b0 = (1 + cosW0) / 2;
+      const b1 = -(1 + cosW0);
+      const b2 = (1 + cosW0) / 2;
+      const a1 = -2 * cosW0;
+      const a2 = 1 - alpha;
+      const y = (b0 * x + b1 * state.x1 + b2 * state.x2 - a1 * state.y1 - a2 * state.y2) / a0;
+      state.x2 = state.x1;
+      state.x1 = x;
+      state.y2 = state.y1;
+      state.y1 = y;
+      return y;
+    };
+
+    const stepLowpass = (state: BiquadState, x: number, freq: number): number => {
+      const w0 = (2 * Math.PI * freq) / sr;
+      const sinW0 = Math.sin(w0);
+      const cosW0 = Math.cos(w0);
+      const alpha = sinW0 / Math.SQRT2;
+      const a0 = 1 + alpha;
+      const b0 = (1 - cosW0) / 2;
+      const b1 = 1 - cosW0;
+      const b2 = (1 - cosW0) / 2;
+      const a1 = -2 * cosW0;
+      const a2 = 1 - alpha;
+      const y = (b0 * x + b1 * state.x1 + b2 * state.x2 - a1 * state.y1 - a2 * state.y2) / a0;
+      state.x2 = state.x1;
+      state.x1 = x;
+      state.y2 = state.y1;
+      state.y1 = y;
+      return y;
+    };
+
+    // Rosenberg glottal pulse (0 <= p < 1) -> differentiated for natural vocal lip radiation (+6dB/oct pre-emphasis)
+    const sampleRosenbergGlottal = (p: number): number => {
+      const openPhase = 0.42;
+      const closePhase = 0.18;
+      if (p < openPhase) {
+        return 0.5 * (1 - Math.cos((Math.PI * p) / openPhase));
+      }
+      if (p < openPhase + closePhase) {
+        return Math.cos((Math.PI * 0.5 * (p - openPhase)) / closePhase);
+      }
+      return 0;
+    };
+
+    let pinkNoise = 0;
+
     for (let fIdx = 0; fIdx < frames.length; fIdx++) {
       const frame = frames[fIdx];
       const next = frames[fIdx + 1] ?? frame;
-      const count = Math.floor(frame.durSec * sr);
+      const count =
+        fIdx === frames.length - 1
+          ? Math.max(1, activeSamples - cursor)
+          : Math.max(1, Math.floor(frame.durSec * sr));
 
-      for (let i = 0; i < count && cursor < totalSamples; i++) {
-        const t = i / Math.max(1, count);
-        const f1 = frame.f1 + (next.f1 - frame.f1) * t * 0.45;
-        const f2 = frame.f2 + (next.f2 - frame.f2) * t * 0.45;
-        const f3 = frame.f3 + (next.f3 - frame.f3) * t * 0.45;
+      const startVoiced = frame.voiced ?? 1;
+      const endVoiced = next.voiced ?? startVoiced;
+      const startPitch = frame.pitchMul ?? 1.0;
+      const endPitch = next.pitchMul ?? startPitch;
+      const startBreath = frame.breath ?? 0.04;
+      const endBreath = next.breath ?? startBreath;
+      const startNoise = frame.noiseGain ?? 0.0;
+      const endNoise = next.noiseGain ?? startNoise;
+      const startNoiseFreq = frame.noiseFreq ?? 3200;
+      const endNoiseFreq = next.noiseFreq ?? startNoiseFreq;
+      const startNoiseQ = frame.noiseQ ?? 1.4;
+      const endNoiseQ = next.noiseQ ?? startNoiseQ;
+      const startAmp = frame.amp ?? 1.0;
+      const endAmp = next.amp ?? startAmp;
 
-        let source = 0;
-        if (frame.voiced !== false) {
-          const pitch = basePitchHz * (frame.pitchMul ?? 1.0);
+      for (let i = 0; i < count && cursor < activeSamples; i++) {
+        const rawT = i / Math.max(1, count);
+        const s = rawT * rawT * (3 - 2 * rawT);
+
+        const f1 = frame.f1 + (next.f1 - frame.f1) * s;
+        const f2 = frame.f2 + (next.f2 - frame.f2) * s;
+        const f3 = frame.f3 + (next.f3 - frame.f3) * s;
+        const pitchMul = startPitch + (endPitch - startPitch) * s;
+        const voicedMix = startVoiced + (endVoiced - startVoiced) * s;
+        const breathMix = startBreath + (endBreath - startBreath) * s;
+        const noiseAmp = startNoise + (endNoise - startNoise) * s;
+        const noiseFreq = startNoiseFreq + (endNoiseFreq - startNoiseFreq) * s;
+        const noiseQ = startNoiseQ + (endNoiseQ - startNoiseQ) * s;
+        const frameAmp = startAmp + (endAmp - startAmp) * s;
+
+        // Subtle natural vocal pitch contour across the word (~3% gentle fall toward tail)
+        const progress = cursor / activeSamples;
+        const pitchContour = 1.03 - progress * 0.06;
+
+        let glottalSource = 0;
+        if (voicedMix > 0.001) {
+          const pitch = basePitchHz * pitchMul * pitchContour;
           phase += pitch / sr;
           if (phase >= 1) phase -= 1;
-          const glottal =
-            phase < 0.45
-              ? Math.sin((phase / 0.45) * Math.PI)
-              : -0.18 * Math.sin(((phase - 0.45) / 0.55) * Math.PI);
-          source += glottal * 0.85;
+
+          // 2x oversampled glottal pulse differentiation removes digital aliasing / synth harshness
+          const gA = sampleRosenbergGlottal(phase);
+          const pMid = (phase + (0.5 * pitch) / sr) % 1;
+          const gB = sampleRosenbergGlottal(pMid);
+          const diffA = gB - prevGlottal;
+          const diffB = gA - gB;
+          prevGlottal = gA;
+          const pulse = (diffA + diffB) * 3.8;
+
+          // Subtle natural aspiration modulated slightly by vocal phase
+          const breathNoise = (Math.random() * 2 - 1) * breathMix * (0.65 + gA * 0.6);
+          glottalSource = (pulse + breathNoise) * voicedMix;
         }
 
-        const noise = (Math.random() * 2 - 1) * (frame.noiseGain ?? 0.04);
-        source += noise;
+        // Cascade + weighted parallel formant sum avoids hollow comb dips while keeping warm body
+        const v1 = stepResonator(f1State, glottalSource, f1, 75);
+        const v2 = stepResonator(f2State, v1 * 0.72 + glottalSource * 0.32, f2, 105);
+        const v3 = stepResonator(f3State, v2 * 0.62 + glottalSource * 0.14, f3, 155);
+        const vowelOut = v1 * 0.92 + v2 * 0.85 + v3 * 0.45;
 
-        const y1 = stepBiquad(r1, source, f1, 80) * 1.45;
-        const y2 = stepBiquad(r2, source, f2, 110) * 0.9;
-        const y3 = stepBiquad(r3, source, f3, 160) * 0.45;
+        // Crisp shaped air excitation for consonants ('t', 'th', 'f', 's', 'k')
+        const w = Math.random() * 2 - 1;
+        pinkNoise = pinkNoise * 0.35 + w * 0.65;
+        const bwConsonant = Math.max(250, noiseFreq / Math.max(0.8, noiseQ));
+        const consonantOut = stepResonator(consonantBp, pinkNoise, noiseFreq, bwConsonant) * noiseAmp;
 
-        let sample = y1 + y2 + y3;
-        if (frame.voiced === false) {
-          sample += noise * 0.65;
-        }
+        let sample = (vowelOut + consonantOut) * frameAmp;
 
-        const globalPos = cursor / totalSamples;
-        const attack = Math.min(1, cursor / (sr * 0.008));
-        const release = Math.min(1, (totalSamples - cursor) / (sr * 0.022));
-        const env = attack * release * (1 - globalPos * 0.12);
+        // Studio vocal presence (+3.5 dB @ 2.65 kHz) for crisp consonant/vowel diction in IEMs
+        sample = stepPeaking(presenceState, sample, 2650, 1.1, 3.5);
+        // Remove sub-125Hz chest mud & smooth >6.2kHz sibilance
+        sample = stepHighpass(hpState, sample, 125);
+        sample = stepLowpass(lpState, sample, 6200);
 
-        out[cursor] = Math.tanh(sample * 1.6) * env;
+        // Smooth cosine fade-in (7ms) and fade-out (22ms) to pure silence
+        const attackSamples = sr * 0.007;
+        const releaseSamples = sr * 0.022;
+        const attackEnv =
+          cursor < attackSamples ? 0.5 * (1 - Math.cos((Math.PI * cursor) / attackSamples)) : 1;
+        const rem = activeSamples - 1 - cursor;
+        const releaseEnv =
+          rem < releaseSamples ? 0.5 * (1 - Math.cos((Math.PI * rem) / releaseSamples)) : 1;
+
+        out[cursor] = sample * attackEnv * releaseEnv;
         cursor++;
       }
     }
 
+    // Soft-knee RMS + peak normalization so all numbers ('one'..'eight') match perceived loudness
+    let sumSq = 0;
     let maxAbs = 0;
-    for (let i = 0; i < totalSamples; i++) {
-      const a = Math.abs(out[i]);
+    for (let i = 0; i < activeSamples; i++) {
+      const s = out[i];
+      sumSq += s * s;
+      const a = Math.abs(s);
       if (a > maxAbs) maxAbs = a;
     }
-    if (maxAbs > 0.001) {
-      const norm = 0.92 / maxAbs;
-      for (let i = 0; i < totalSamples; i++) {
-        out[i] *= norm;
+    const rms = Math.sqrt(sumSq / Math.max(1, activeSamples));
+    if (rms > 0.001 && maxAbs > 0.001) {
+      const targetGain = Math.min(0.86 / maxAbs, 0.24 / rms);
+      for (let i = 0; i < activeSamples; i++) {
+        out[i] *= targetGain;
       }
     }
 

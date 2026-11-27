@@ -204,6 +204,7 @@ export function useMetronomeSync(
   const [localMasterVolume, setLocalMasterVolume] = useState<number | null>(null);
   const [audioSuspended, setAudioSuspended] = useState(false);
   const [tapCount, setTapCount] = useState(0);
+  const [tapBpmHistory, setTapBpmHistory] = useState<number[]>([]);
   const [deviceOffsetMs, setDeviceOffsetMsState] = useState<number>(() => {
     const val = readStoredJson<number>(STORAGE_KEYS.deviceOffsetMs, 0);
     return typeof val === 'number' && Number.isFinite(val) ? val : 0;
@@ -255,6 +256,16 @@ export function useMetronomeSync(
     }
     return baseSession;
   }, [baseSession, isHost, isWireless, localMasterVolume]);
+
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
+  const isWirelessRef = useRef(isWireless);
+  isWirelessRef.current = isWireless;
+
+  const getTimelineSnapshot = useCallback((): TimelineSnapshot => {
+    const offset = isWirelessRef.current ? serverOffsetRef.current : localClockOffsetRef.current;
+    return evaluateTimeline(activeSessionRef.current, offset);
+  }, []);
 
   const permissions: RemotePermissions = useMemo(() => {
     if (isHost) return { playStop: true, bpm: true, setlistNav: true };
@@ -420,26 +431,43 @@ export function useMetronomeSync(
     };
   }, []);
 
-  // UI Animation clock (strictly decoupled from Audio clock)
+  // UI Animation clock (strictly decoupled from Audio clock & high-frequency beatPhase)
   const [timeline, setTimeline] = useState<TimelineSnapshot>(() =>
     evaluateTimeline(activeSession, localClockOffsetRef.current)
   );
+  const lastDiscreteTimelineKeyRef = useRef<string>('');
 
   useEffect(() => {
     const offset = isWireless ? serverOffsetRef.current : localClockOffsetRef.current;
     if (!activeSession.playback.isPlaying) {
+      lastDiscreteTimelineKeyRef.current = '';
       setTimeline(evaluateTimeline(activeSession, offset));
       setAudioSuspended(false);
       return;
     }
 
     let rafId = 0;
-    const frame = () => {
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        rafId = 0;
+        return;
+      }
+
       const snap = evaluateTimeline(
         activeSession,
         isWireless ? serverOffsetRef.current : localClockOffsetRef.current
       );
-      setTimeline(snap);
+
+      // Only trigger React re-renders on discrete beat/subdivision/state boundaries.
+      // Continuous 60/120fps phase animations sample getTimelineSnapshot() directly.
+      const discreteKey = `${snap.isPlaying ? 1 : 0}|${snap.isCountingIn ? 1 : 0}|${snap.currentBar}|${snap.currentBeat}|${snap.currentSubdivision}|${snap.subdivisionsPerBeat}|${snap.countInDisplayText ?? ''}`;
+      if (discreteKey !== lastDiscreteTimelineKeyRef.current) {
+        lastDiscreteTimelineKeyRef.current = discreteKey;
+        setTimeline(snap);
+      }
 
       const totalBeatFloor = Math.floor(snap.totalBeatsElapsed);
       if (
@@ -463,10 +491,27 @@ export function useMetronomeSync(
         }
       }
 
-      rafId = requestAnimationFrame(frame);
+      rafId = requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(rafId);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && rafId === 0 && active) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      active = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      }
+    };
   }, [
     accessibility.hapticAccentOnly,
     accessibility.hapticBeat,
@@ -960,6 +1005,12 @@ export function useMetronomeSync(
       }
       setAudioSuspended(false);
 
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        throw new Error(
+          'You appear to be offline. Reconnect to the internet before starting a live wireless session.'
+        );
+      }
+
       // Persist chosen host identity into local configuration as well
       setLocalSession((prev) => ({
         ...prev,
@@ -973,34 +1024,60 @@ export function useMetronomeSync(
         headers.Authorization = `Bearer ${idToken}`;
       }
 
-      const res = await fetch(apiUrl('/api/sessions'), {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          name: opts.name,
-          hostName: opts.hostName,
-          hostRole: opts.hostRole,
-          bpm: localSession.bpm,
-          timeSignature: localSession.timeSignature,
-          accentPattern: localSession.accentPattern,
-          subdivision: localSession.subdivision,
-          clickSound: localSession.clickProfile.normalSound,
-          clickProfile: localSession.clickProfile,
-          countInBars: localSession.countInBars,
-          setlist: localSession.setlist,
-          activeSetlistId: localSession.activeSetlistId,
-          activeSongIndex: localSession.activeSongIndex,
-        }),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(err.error || 'Could not create session');
+      let res: Response;
+      try {
+        res = await fetch(apiUrl('/api/sessions'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            name: opts.name,
+            hostName: opts.hostName,
+            hostRole: opts.hostRole,
+            bpm: localSession.bpm,
+            timeSignature: localSession.timeSignature,
+            accentPattern: localSession.accentPattern,
+            subdivision: localSession.subdivision,
+            clickSound: localSession.clickProfile.normalSound,
+            clickProfile: localSession.clickProfile,
+            countInBars: localSession.countInBars,
+            setlist: localSession.setlist,
+            activeSetlistId: localSession.activeSetlistId,
+            activeSongIndex: localSession.activeSongIndex,
+          }),
+        });
+      } catch (err) {
+        const reason = err instanceof Error && err.message ? ` (${err.message})` : '';
+        throw new Error(
+          `Could not reach the SyncBeat session server${reason}. Verify your connection and try again.`
+        );
       }
-      const data = (await res.json()) as {
-        session: MetronomeSessionState;
-        participantId: string;
-        token: string;
-      };
+
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as
+          | { error?: string; details?: string }
+          | null;
+        if (errBody?.error) {
+          throw new Error(
+            errBody.details ? `${errBody.error}: ${errBody.details}` : errBody.error
+          );
+        }
+        throw new Error(
+          `Session creation failed with server status HTTP ${res.status}. Please try again in a moment.`
+        );
+      }
+
+      const data = (await res.json().catch(() => null)) as {
+        session?: MetronomeSessionState;
+        participantId?: string;
+        token?: string;
+      } | null;
+
+      if (!data?.session?.sessionId || !data.participantId || !data.token) {
+        throw new Error(
+          'Session server returned an incomplete response. Please refresh and try creating the session again.'
+        );
+      }
+
       const creds: AuthCredentials = {
         sessionId: data.session.sessionId,
         participantId: data.participantId,
@@ -1023,21 +1100,39 @@ export function useMetronomeSync(
       } catch {
         // allow session join even if browser restricts Web Audio initialization
       }
-      const cleanCode = opts.code.toUpperCase().trim();
-      const res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(cleanCode)}/join`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: opts.name, role: opts.role }),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(err.error || 'Failed to join session');
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        throw new Error(
+          'You appear to be offline. Reconnect to the internet to join a live session.'
+        );
       }
-      const data = (await res.json()) as {
-        session: MetronomeSessionState;
-        participantId: string;
-        token: string;
-      };
+      const cleanCode = opts.code.toUpperCase().trim();
+      let res: Response;
+      try {
+        res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(cleanCode)}/join`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: opts.name, role: opts.role }),
+        });
+      } catch (err) {
+        const reason = err instanceof Error && err.message ? ` (${err.message})` : '';
+        throw new Error(
+          `Could not reach the SyncBeat session server${reason}. Verify your connection and try again.`
+        );
+      }
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(
+          errBody?.error || `Failed to join session ${cleanCode} (HTTP ${res.status}).`
+        );
+      }
+      const data = (await res.json().catch(() => null)) as {
+        session?: MetronomeSessionState;
+        participantId?: string;
+        token?: string;
+      } | null;
+      if (!data?.session?.sessionId || !data.participantId || !data.token) {
+        throw new Error('Server returned an incomplete join response. Please try again.');
+      }
       const creds: AuthCredentials = {
         sessionId: data.session.sessionId,
         participantId: data.participantId,
@@ -1312,11 +1407,19 @@ export function useMetronomeSync(
       for (let i = 1; i < tapTimesRef.current.length; i++) {
         intervals.push(tapTimesRef.current[i] - tapTimesRef.current[i - 1]);
       }
+      const lastIntervalMs = intervals[intervals.length - 1];
+      const instantBpm = Math.round(Math.min(300, Math.max(20, 60000 / Math.max(150, lastIntervalMs))));
+      setTapBpmHistory((prev) => [...prev.slice(-4), instantBpm]);
+
       const avgMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
       const bpm = Math.round(Math.min(300, Math.max(20, 60000 / avgMs)));
       updateMetronome({ bpm });
     }
   }, [updateMetronome]);
+
+  const clearTapBpmHistory = useCallback(() => {
+    setTapBpmHistory([]);
+  }, []);
 
   const selectSong = useCallback(
     (index: number) => {
@@ -1505,6 +1608,7 @@ export function useMetronomeSync(
     () => ({
       session: activeSession,
       timeline,
+      getTimelineSnapshot,
       isWireless,
       isHost,
       me,
@@ -1523,6 +1627,8 @@ export function useMetronomeSync(
       deviceOffsetMs,
       setDeviceOffsetMs,
       tapCount,
+      tapBpmHistory,
+      clearTapBpmHistory,
       createSession,
       joinSession,
       leaveSession,
@@ -1548,6 +1654,7 @@ export function useMetronomeSync(
       activeSession,
       applyPreset,
       audioSuspended,
+      clearTapBpmHistory,
       connectionQuality,
       controlParticipant,
       createSession,
@@ -1555,6 +1662,7 @@ export function useMetronomeSync(
       dismissBanner,
       endSession,
       forceResync,
+      getTimelineSnapshot,
       isHost,
       isWireless,
       joinSession,
@@ -1580,6 +1688,7 @@ export function useMetronomeSync(
       setlists,
       statusBanner,
       stop,
+      tapBpmHistory,
       tapCount,
       timeline,
       toggleLocalSelfMute,

@@ -22,8 +22,14 @@ class MetronomeClockProcessor extends AudioWorkletProcessor {
     };
   }
   process(inputs, outputs) {
+    const out = outputs[0];
+    if (out) {
+      for (let ch = 0; ch < out.length; ch++) {
+        out[ch].fill(0);
+      }
+    }
     if (this._active) {
-      const blockSize = outputs[0]?.[0]?.length || 128;
+      const blockSize = out?.[0]?.length || 128;
       this._samplesSinceTick += blockSize;
       // Notify roughly every ~21-23ms on the Web Audio rendering thread
       if (this._samplesSinceTick >= 1024) {
@@ -54,6 +60,11 @@ onmessage = (e) => {
 };
 `;
 
+interface ActiveClickNode {
+  source: AudioScheduledSourceNode;
+  gain: GainNode;
+}
+
 /**
  * Dedicated sample-accurate Web Audio API engine driven strictly by
  * AudioContext.currentTime and an AudioWorklet (with Web Worker fallback).
@@ -61,12 +72,14 @@ onmessage = (e) => {
  */
 export class AudioEngine {
   private ctx: AudioContext | null = null;
+  private masterBus: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private workletReady = false;
   private workletInitPromise: Promise<void> | null = null;
   private fallbackWorker: Worker | null = null;
   private clockActive = false;
+  private activeClickNodes = new Set<ActiveClickNode>();
 
   private session: MetronomeSessionState | null = null;
   private serverOffsetMs = 0;
@@ -76,6 +89,8 @@ export class AudioEngine {
   private lastSequenceId = -1;
   private lastBpm = 0;
   private lastSubdivision = '';
+  private lastVocalMode = '';
+  private lastBeatsPerBar = 0;
   private localMuted = false;
 
   // 240ms lookahead window on the hardware AudioContext timeline
@@ -112,12 +127,42 @@ export class AudioEngine {
     return this.deviceOffsetMs;
   }
 
+  private getMasterBus(ctx: AudioContext): GainNode {
+    if (this.masterBus && this.masterBus.context === ctx) {
+      return this.masterBus;
+    }
+    const input = ctx.createGain();
+    input.gain.setValueAtTime(1.0, ctx.currentTime);
+
+    // Sub-32Hz DC blocker removes sub-audible thumps/hum in IEMs
+    const dcBlocker = ctx.createBiquadFilter();
+    dcBlocker.type = 'highpass';
+    dcBlocker.frequency.setValueAtTime(32, ctx.currentTime);
+    dcBlocker.Q.setValueAtTime(0.707, ctx.currentTime);
+
+    // Gentle transparent IEM safety limiter prevents simultaneous click+vocal clipping without ducking vocal consonants
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.setValueAtTime(-1.5, ctx.currentTime);
+    limiter.knee.setValueAtTime(4, ctx.currentTime);
+    limiter.ratio.setValueAtTime(6, ctx.currentTime);
+    limiter.attack.setValueAtTime(0.001, ctx.currentTime);
+    limiter.release.setValueAtTime(0.015, ctx.currentTime);
+
+    input.connect(dcBlocker);
+    dcBlocker.connect(limiter);
+    limiter.connect(ctx.destination);
+
+    this.masterBus = input;
+    return input;
+  }
+
   public ensureContext(): AudioContext {
     if (!this.ctx) {
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx({ latencyHint: 'interactive' });
+      this.getMasterBus(this.ctx);
       this.noiseBuffer = this.createNoiseBuffer(this.ctx);
       sharedAudioVocalizer.preloadStandardCounts(this.ctx);
       this.initAudioClockPump(this.ctx);
@@ -141,10 +186,14 @@ export class AudioEngine {
         .then(() => {
           URL.revokeObjectURL(url);
           if (!this.ctx || this.ctx !== ctx) return;
-          const node = new AudioWorkletNode(ctx, 'metronome-clock-processor');
+          const node = new AudioWorkletNode(ctx, 'metronome-clock-processor', {
+            numberOfInputs: 0,
+            numberOfOutputs: 1,
+            outputChannelCount: [1],
+          });
           // Connect silently so the Web Audio rendering thread continuously processes blocks
           const silentGain = ctx.createGain();
-          silentGain.gain.value = 0;
+          silentGain.gain.setValueAtTime(0, ctx.currentTime);
           node.connect(silentGain);
           silentGain.connect(ctx.destination);
           node.port.onmessage = () => this.scheduleAhead();
@@ -180,18 +229,44 @@ export class AudioEngine {
     }
   }
 
+  private stopActiveClicks(): void {
+    if (!this.ctx) {
+      this.activeClickNodes.clear();
+      return;
+    }
+    const now = this.ctx.currentTime;
+    for (const item of this.activeClickNodes) {
+      try {
+        item.gain.gain.cancelScheduledValues(now);
+        item.gain.gain.setValueAtTime(item.gain.gain.value, now);
+        item.gain.gain.linearRampToValueAtTime(0, now + 0.008);
+        item.source.stop(now + 0.012);
+      } catch {
+        // Ignore already-stopped nodes
+      }
+    }
+  }
+
   private createNoiseBuffer(ctx: AudioContext): AudioBuffer {
-    const length = Math.floor(ctx.sampleRate * 0.15);
+    const length = Math.floor(ctx.sampleRate * 0.12);
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = buffer.getChannelData(0);
+    // Slightly smoothed white noise avoids ultrasonic harshness in IEMs
+    let prev = 0;
     for (let i = 0; i < length; i++) {
-      data[i] = Math.random() * 2 - 1;
+      const w = Math.random() * 2 - 1;
+      prev = prev * 0.25 + w * 0.75;
+      data[i] = prev;
     }
     return buffer;
   }
 
   public setLocalMuted(muted: boolean): void {
     this.localMuted = muted;
+    if (muted && this.ctx) {
+      sharedAudioVocalizer.stopAll(this.ctx);
+      this.stopActiveClicks();
+    }
   }
 
   public updateSyncState(session: MetronomeSessionState | null, serverOffsetMs: number): void {
@@ -205,6 +280,8 @@ export class AudioEngine {
     const prevSeq = this.lastSequenceId;
     const prevBpm = this.lastBpm;
     const prevSub = this.lastSubdivision;
+    const prevVocalMode = this.lastVocalMode;
+    const prevBeatsPerBar = this.lastBeatsPerBar;
     this.session = session;
 
     if (!session || !session.playback.isPlaying) {
@@ -213,12 +290,20 @@ export class AudioEngine {
       this.lastSequenceId = session?.playback.sequenceId ?? -1;
       this.lastBpm = session?.bpm ?? 0;
       this.lastSubdivision = session?.subdivision ?? '';
+      this.lastVocalMode = session?.clickProfile.vocalMode ?? '';
+      this.lastBeatsPerBar = session?.timeSignature.numerator ?? 0;
       return;
     }
 
     const ctx = this.ensureContext();
+    const vocalMode = session.clickProfile.vocalMode ?? 'beats';
+    const beatsPerBar = Math.max(1, session.timeSignature.numerator);
     const seqChanged = session.playback.sequenceId !== prevSeq;
-    const tempoChanged = session.bpm !== prevBpm || session.subdivision !== prevSub;
+    const tempoChanged =
+      session.bpm !== prevBpm ||
+      session.subdivision !== prevSub ||
+      beatsPerBar !== prevBeatsPerBar;
+    const vocalModeChanged = vocalMode !== prevVocalMode;
 
     const estimatedServerNow = performance.now() + this.serverOffsetMs;
     const targetAnchorCtxTime =
@@ -226,10 +311,13 @@ export class AudioEngine {
       (session.playback.anchorServerMs - estimatedServerNow + this.deviceOffsetMs) / 1000;
 
     if (!prevPlaying || seqChanged || tempoChanged) {
-      sharedAudioVocalizer.stopAll();
+      sharedAudioVocalizer.stopAll(ctx);
+      this.stopActiveClicks();
       this.lastSequenceId = session.playback.sequenceId;
       this.lastBpm = session.bpm;
       this.lastSubdivision = session.subdivision;
+      this.lastVocalMode = vocalMode;
+      this.lastBeatsPerBar = beatsPerBar;
       this.anchorCtxTime = targetAnchorCtxTime;
 
       const subPerBeat = getSubdivisionsPerBeat(session.subdivision);
@@ -239,6 +327,10 @@ export class AudioEngine {
       const currentStep = Math.floor(currentTotalBeats * subPerBeat);
       this.lastScheduledStepIndex = Math.max(-1, currentStep - 1);
     } else {
+      if (vocalModeChanged) {
+        sharedAudioVocalizer.stopAll(ctx);
+        this.lastVocalMode = vocalMode;
+      }
       // Gentle phase slew when periodic NTP clock sync nudges offset slightly
       const driftSec = targetAnchorCtxTime - this.anchorCtxTime;
       const absDrift = Math.abs(driftSec);
@@ -265,7 +357,8 @@ export class AudioEngine {
 
   private stopClockPump(): void {
     this.clockActive = false;
-    sharedAudioVocalizer.stopAll();
+    sharedAudioVocalizer.stopAll(this.ctx ?? undefined);
+    this.stopActiveClicks();
     if (this.workletNode) {
       this.workletNode.port.postMessage({ active: false });
     }
@@ -277,6 +370,10 @@ export class AudioEngine {
     if (this.workletNode) {
       this.workletNode.disconnect();
       this.workletNode = null;
+    }
+    if (this.masterBus) {
+      this.masterBus.disconnect();
+      this.masterBus = null;
     }
     if (this.ctx) {
       void this.ctx.close();
@@ -342,6 +439,7 @@ export class AudioEngine {
     const clickEnabled = profile.clickEnabled ?? true;
     const vocalMode = profile.vocalMode ?? 'beats';
     const vocalVolume = (profile.vocalVolume ?? 0.9) * masterVol;
+    const destination = this.getMasterBus(this.ctx);
 
     if (isMainBeat) {
       let accentType: BeatAccentType = 'normal';
@@ -367,12 +465,15 @@ export class AudioEngine {
       }
 
       if (vocalMode === 'bar_countdown') {
-        if (beatInBar === 0 && vocalVolume > 0.005) {
-          sharedAudioVocalizer.scheduleBarCountdown(this.ctx, beatsPerBar, when, {
+        // Schedule each beat individually on its own step so tempo/mode/mute changes stay instant
+        if (vocalVolume > 0.005) {
+          sharedAudioVocalizer.scheduleBeatCount(this.ctx, beatInBar + 1, when, {
             volume: vocalVolume,
             bpm: session.bpm,
-            isAccent: true,
+            isAccent: beatInBar === 0,
             isSubdivision: false,
+            subdivisionsPerBeat: subPerBeat,
+            destination,
           });
         }
       } else if (accentType !== 'mute') {
@@ -387,6 +488,8 @@ export class AudioEngine {
             bpm: session.bpm,
             isAccent,
             isSubdivision: false,
+            subdivisionsPerBeat: subPerBeat,
+            destination,
           });
         }
       }
@@ -394,19 +497,48 @@ export class AudioEngine {
       if (clickEnabled) {
         const vol = profile.subdivisionVolume * masterVol;
         if (vol > 0.005) {
-          this.triggerSound(profile.subdivisionSound, when, vol * 0.72, false, true);
+          this.triggerSound(profile.subdivisionSound, when, vol * 0.68, false, true);
         }
       }
 
-      if (vocalMode === 'beats_and_sub' && vocalVolume > 0.005) {
+      const beatInBar = isCountingIn
+        ? beatIndexTotal % beatsPerBar
+        : (beatIndexTotal - countInBeatsTotal) % beatsPerBar;
+      const parentAccentType: BeatAccentType = isCountingIn
+        ? beatInBar === 0
+          ? 'accent'
+          : 'normal'
+        : session.accentPattern[beatInBar] ?? (beatInBar === 0 ? 'accent' : 'normal');
+
+      const isVocalCountActive =
+        vocalMode === 'bar_countdown' ||
+        (parentAccentType !== 'mute' &&
+          (vocalMode === 'beats' ||
+            vocalMode === 'beats_and_sub' ||
+            (vocalMode === 'countin_only' && isCountingIn)));
+
+      const shouldVocalizeSubdivision =
+        isVocalCountActive &&
+        (session.subdivision === 'eighth' ||
+          session.subdivision === 'sixteenth' ||
+          vocalMode === 'beats_and_sub');
+
+      if (shouldVocalizeSubdivision && vocalVolume > 0.005) {
         const subMeta = SUBDIVISIONS.find((s) => s.id === session.subdivision);
-        const syllable = subMeta?.syllables[subIndex] ?? 'and';
+        const syllable =
+          session.subdivision === 'eighth'
+            ? 'and'
+            : session.subdivision === 'sixteenth'
+            ? (['1', 'e', 'and', 'a'][subIndex] ?? 'and')
+            : (subMeta?.syllables[subIndex] ?? 'and');
         const token = syllable === '&' ? 'and' : syllable;
         sharedAudioVocalizer.scheduleToken(this.ctx, token, when, {
-          volume: vocalVolume * 0.78,
+          volume: vocalVolume * 0.72,
           bpm: session.bpm,
           isAccent: false,
           isSubdivision: true,
+          subdivisionsPerBeat: subPerBeat,
+          destination,
         });
       }
     }
@@ -414,12 +546,17 @@ export class AudioEngine {
 
   public previewSound(soundId: ClickSoundId, isAccent = false, volume = 0.85): void {
     const ctx = this.ensureContext();
-    this.triggerSound(soundId, ctx.currentTime + 0.01, volume, isAccent);
+    this.triggerSound(soundId, ctx.currentTime + 0.015, volume, isAccent);
   }
 
   public previewVocalCount(volume = 0.9): void {
     const ctx = this.ensureContext();
-    sharedAudioVocalizer.previewBarCount(ctx, volume, this.session?.bpm ?? 120);
+    sharedAudioVocalizer.previewBarCount(
+      ctx,
+      volume,
+      this.session?.bpm ?? 120,
+      this.getMasterBus(ctx)
+    );
   }
 
   private triggerSound(
@@ -440,74 +577,74 @@ export class AudioEngine {
         break;
       }
       case 'sharp': {
-        this.playTone(ctx, when, 'triangle', 2200 * pitchBoost, 1100 * pitchBoost, 0.025, volume * 0.9);
-        this.playFilteredNoise(ctx, when, 'highpass', 3200, 0.018, volume * 0.45);
+        this.playTone(ctx, when, 'triangle', 2000 * pitchBoost, 1050 * pitchBoost, 0.025, volume * 0.85, 4200);
+        this.playFilteredNoise(ctx, when, 'bandpass', 3200, 0.016, volume * 0.35);
         break;
       }
       case 'soft': {
-        this.playTone(ctx, when, 'sine', 680 * pitchBoost, 520 * pitchBoost, 0.045, volume * 0.85);
+        this.playTone(ctx, when, 'sine', 680 * pitchBoost, 520 * pitchBoost, 0.044, volume * 0.82);
         break;
       }
       case 'woodblock': {
         const base = 760 * pitchBoost;
-        this.playTone(ctx, when, 'sine', base * 1.12, base, 0.052, volume);
-        this.playTone(ctx, when, 'triangle', base * 2.15, base * 1.9, 0.024, volume * 0.35);
+        this.playTone(ctx, when, 'sine', base * 1.12, base, 0.052, volume * 0.95);
+        this.playTone(ctx, when, 'sine', base * 2.1, base * 1.9, 0.024, volume * 0.28);
         break;
       }
       case 'clave': {
-        const base = 1850 * pitchBoost;
-        this.playTone(ctx, when, 'sine', base * 1.05, base, 0.038, volume);
-        this.playTone(ctx, when, 'sine', base * 1.52, base * 1.48, 0.025, volume * 0.4);
+        const base = 1820 * pitchBoost;
+        this.playTone(ctx, when, 'sine', base * 1.05, base, 0.038, volume * 0.95);
+        this.playTone(ctx, when, 'sine', base * 1.5, base * 1.46, 0.024, volume * 0.35);
         break;
       }
       case 'rim': {
-        this.playTone(ctx, when, 'triangle', 480 * pitchBoost, 220 * pitchBoost, 0.035, volume * 0.8);
-        this.playFilteredNoise(ctx, when, 'bandpass', 2800 * pitchBoost, 0.032, volume * 0.9);
+        this.playTone(ctx, when, 'triangle', 480 * pitchBoost, 220 * pitchBoost, 0.034, volume * 0.78, 2200);
+        this.playFilteredNoise(ctx, when, 'bandpass', 2600 * pitchBoost, 0.026, volume * 0.65);
         break;
       }
       case 'stick': {
-        this.playTone(ctx, when, 'triangle', 1420 * pitchBoost, 820 * pitchBoost, 0.024, volume * 0.7);
-        this.playFilteredNoise(ctx, when, 'bandpass', 2400, 0.022, volume * 0.75);
+        this.playTone(ctx, when, 'triangle', 1420 * pitchBoost, 820 * pitchBoost, 0.024, volume * 0.7, 3200);
+        this.playFilteredNoise(ctx, when, 'bandpass', 2400, 0.02, volume * 0.58);
         break;
       }
       case 'cowbell': {
         const f1 = 540 * pitchBoost;
         const f2 = 810 * pitchBoost;
-        this.playTone(ctx, when, 'square', f1, f1 * 0.98, 0.08, volume * 0.35, 1800);
-        this.playTone(ctx, when, 'square', f2, f2 * 0.98, 0.075, volume * 0.3, 1800);
+        this.playTone(ctx, when, 'triangle', f1, f1 * 0.98, 0.075, volume * 0.55, 1500);
+        this.playTone(ctx, when, 'square', f2, f2 * 0.98, 0.068, volume * 0.22, 1450);
         break;
       }
       case 'studio': {
-        this.playTone(ctx, when, 'sine', 1560 * pitchBoost, 1180 * pitchBoost, 0.028, volume * 0.95);
-        this.playFilteredNoise(ctx, when, 'highpass', 4200, 0.012, volume * 0.3);
+        this.playTone(ctx, when, 'sine', 1560 * pitchBoost, 1180 * pitchBoost, 0.028, volume * 0.92);
+        this.playFilteredNoise(ctx, when, 'bandpass', 3800, 0.012, volume * 0.24);
         break;
       }
       case 'pulse': {
-        this.playTone(ctx, when, 'square', 980 * pitchBoost, 480 * pitchBoost, 0.022, volume * 0.45, 2600);
+        this.playTone(ctx, when, 'triangle', 980 * pitchBoost, 480 * pitchBoost, 0.024, volume * 0.72, 2200);
         break;
       }
       case 'synth': {
-        this.playTone(ctx, when, 'sine', 1046.5 * pitchBoost, 1046.5 * pitchBoost, 0.058, volume * 0.85);
-        this.playTone(ctx, when, 'sine', 2093 * pitchBoost, 1568 * pitchBoost, 0.03, volume * 0.25);
+        this.playTone(ctx, when, 'sine', 1046.5 * pitchBoost, 1046.5 * pitchBoost, 0.056, volume * 0.85);
+        this.playTone(ctx, when, 'sine', 2093 * pitchBoost, 1568 * pitchBoost, 0.028, volume * 0.24);
         break;
       }
       case 'etick': {
-        this.playTone(ctx, when, 'sine', 2900 * pitchBoost, 1400 * pitchBoost, 0.014, volume * 0.9);
+        this.playTone(ctx, when, 'sine', 2600 * pitchBoost, 1350 * pitchBoost, 0.015, volume * 0.88);
         break;
       }
       case 'warm': {
-        this.playTone(ctx, when, 'sine', 620 * pitchBoost, 440 * pitchBoost, 0.055, volume * 0.95);
-        this.playTone(ctx, when, 'triangle', 930 * pitchBoost, 660 * pitchBoost, 0.028, volume * 0.22);
+        this.playTone(ctx, when, 'sine', 620 * pitchBoost, 440 * pitchBoost, 0.054, volume * 0.92);
+        this.playTone(ctx, when, 'sine', 930 * pitchBoost, 660 * pitchBoost, 0.028, volume * 0.2);
         break;
       }
       case 'tight': {
-        this.playTone(ctx, when, 'triangle', 1240 * pitchBoost, 620 * pitchBoost, 0.022, volume * 0.9);
-        this.playFilteredNoise(ctx, when, 'bandpass', 3600, 0.015, volume * 0.5);
+        this.playTone(ctx, when, 'triangle', 1240 * pitchBoost, 620 * pitchBoost, 0.022, volume * 0.86, 3000);
+        this.playFilteredNoise(ctx, when, 'bandpass', 3200, 0.014, volume * 0.4);
         break;
       }
       case 'stage': {
-        this.playTone(ctx, when, 'sawtooth', 1480 * pitchBoost, 980 * pitchBoost, 0.032, volume * 0.5, 3200);
-        this.playFilteredNoise(ctx, when, 'highpass', 2600, 0.02, volume * 0.55);
+        this.playTone(ctx, when, 'triangle', 1480 * pitchBoost, 980 * pitchBoost, 0.03, volume * 0.72, 2600);
+        this.playFilteredNoise(ctx, when, 'bandpass', 2800, 0.018, volume * 0.45);
         break;
       }
     }
@@ -529,12 +666,15 @@ export class AudioEngine {
     osc.frequency.setValueAtTime(Math.max(40, startFreq), when);
     osc.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), when + duration);
 
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.linearRampToValueAtTime(Math.min(1, volume), when + 0.002);
+    const peak = Math.min(0.95, Math.max(0.0001, volume));
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(peak, when + 0.0025);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    gain.gain.linearRampToValueAtTime(0, when + duration + 0.004);
 
+    let filter: BiquadFilterNode | null = null;
     if (lowpassHz) {
-      const filter = ctx.createBiquadFilter();
+      filter = ctx.createBiquadFilter();
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(lowpassHz, when);
       osc.connect(filter);
@@ -543,9 +683,23 @@ export class AudioEngine {
       osc.connect(gain);
     }
 
-    gain.connect(ctx.destination);
+    gain.connect(this.getMasterBus(ctx));
+
+    const tracked: ActiveClickNode = { source: osc, gain };
+    this.activeClickNodes.add(tracked);
+    osc.onended = () => {
+      this.activeClickNodes.delete(tracked);
+      try {
+        osc.disconnect();
+        filter?.disconnect();
+        gain.disconnect();
+      } catch {
+        // ignore
+      }
+    };
+
     osc.start(when);
-    osc.stop(when + duration + 0.01);
+    osc.stop(when + duration + 0.008);
   }
 
   private playFilteredNoise(
@@ -563,19 +717,34 @@ export class AudioEngine {
     const filter = ctx.createBiquadFilter();
     filter.type = filterType;
     filter.frequency.setValueAtTime(freq, when);
-    filter.Q.setValueAtTime(filterType === 'bandpass' ? 3.2 : 1.0, when);
+    filter.Q.setValueAtTime(filterType === 'bandpass' ? 2.1 : 0.85, when);
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.linearRampToValueAtTime(Math.min(1, volume), when + 0.0015);
+    const peak = Math.min(0.95, Math.max(0.0001, volume));
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(peak, when + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    gain.gain.linearRampToValueAtTime(0, when + duration + 0.004);
 
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getMasterBus(ctx));
+
+    const tracked: ActiveClickNode = { source: src, gain };
+    this.activeClickNodes.add(tracked);
+    src.onended = () => {
+      this.activeClickNodes.delete(tracked);
+      try {
+        src.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+      } catch {
+        // ignore
+      }
+    };
 
     src.start(when);
-    src.stop(when + duration + 0.01);
+    src.stop(when + duration + 0.008);
   }
 }
 

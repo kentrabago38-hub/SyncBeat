@@ -415,145 +415,157 @@ async function startServer() {
 
   // Create new session (Host)
   app.post('/api/sessions', async (req, res) => {
-    let hostUid: string | null = null;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
-        hostUid = decoded.uid;
-      } catch {
-        // allow anonymous session hosting fallback if token invalid/absent
-      }
-    }
-    const body = req.body as {
-      name?: unknown;
-      hostName?: unknown;
-      hostRole?: unknown;
-      bpm?: unknown;
-      timeSignature?: TimeSignature;
-      accentPattern?: BeatAccentType[];
-      subdivision?: SubdivisionType;
-      clickSound?: ClickSoundId;
-      clickProfile?: Partial<MetronomeSessionState['clickProfile']>;
-      countInBars?: CountInBars;
-      setlist?: SetlistItem[];
-      activeSetlistId?: string | null;
-      activeSongIndex?: number;
-    };
-
-    const sessionId = generateSessionCode();
-    const hostId = crypto.randomUUID();
-    const hostToken = crypto.randomBytes(24).toString('hex');
-    const hostName = sanitizeText(body.hostName, 32, 'Host');
-    const hostRole = sanitizeRole(body.hostRole);
-    const ts: TimeSignature = body.timeSignature?.numerator
-      ? {
-          numerator: Math.max(1, Math.min(16, Math.round(body.timeSignature.numerator))),
-          denominator: ([2, 4, 8, 16].includes(body.timeSignature.denominator)
-            ? body.timeSignature.denominator
-            : 4) as 2 | 4 | 8 | 16,
-          grouping: Array.isArray(body.timeSignature.grouping)
-            ? body.timeSignature.grouping.slice(0, 8)
-            : undefined,
-        }
-      : { numerator: 4, denominator: 4 };
-
-    const now = Date.now();
-    const hostParticipant: Participant = {
-      id: hostId,
-      name: hostName,
-      role: hostRole,
-      isHost: true,
-      isMuted: false,
-      status: 'synced',
-      latencyMs: 0,
-      permissions: { playStop: true, bpm: true, setlistNav: true },
-      joinedAt: now,
-    };
-
-    const initialSetlist = Array.isArray(body.setlist)
-      ? body.setlist.slice(0, 100)
-      : DEFAULT_SETLISTS[0].items;
-
-    const initialAccentPattern =
-      Array.isArray(body.accentPattern) && body.accentPattern.length === ts.numerator
-        ? (body.accentPattern.map((a) =>
-            a === 'accent' || a === 'normal' || a === 'mute' ? a : 'normal'
-          ) as BeatAccentType[])
-        : buildAccentPattern(ts);
-
-    const rawProfile =
-      body.clickProfile && typeof body.clickProfile === 'object' ? body.clickProfile : {};
-    const mergedProfile: MetronomeSessionState['clickProfile'] = {
-      ...DEFAULT_CLICK_PROFILE,
-      ...rawProfile,
-      normalSound: rawProfile.normalSound ?? body.clickSound ?? DEFAULT_CLICK_PROFILE.normalSound,
-    };
-
-    const clampedSongIndex =
-      initialSetlist.length > 0 && typeof body.activeSongIndex === 'number'
-        ? Math.max(0, Math.min(initialSetlist.length - 1, Math.round(body.activeSongIndex)))
-        : 0;
-
-    const state: MetronomeSessionState = {
-      sessionId,
-      name: sanitizeText(body.name, 48, 'Band Rehearsal'),
-      hostId,
-      hostName,
-      hostRole,
-      isLocked: false,
-      bpm: clampBpm(body.bpm ?? 120),
-      timeSignature: ts,
-      accentPattern: initialAccentPattern,
-      subdivision: body.subdivision ?? 'quarter',
-      clickProfile: mergedProfile,
-      countInBars: body.countInBars ?? 0,
-      playback: {
-        isPlaying: false,
-        anchorServerMs: now,
-        anchorTotalBeats: 0,
-        sequenceId: 1,
-        activeSectionIndex: 0,
-      },
-      activeSetlistId:
-        body.activeSetlistId !== undefined ? body.activeSetlistId : DEFAULT_SETLISTS[0].id,
-      activeSongIndex: clampedSongIndex,
-      setlist: initialSetlist,
-      participants: [hostParticipant],
-      createdAt: now,
-      lastActivityAt: now,
-    };
-
-    const serverSession: ServerSession = {
-      state,
-      hostUid,
-      hostToken,
-      participantTokens: new Map([[hostId, hostToken]]),
-      kickedIds: new Set(),
-      sockets: new Map(),
-      automationTimer: null,
-    };
-
-    sessions.set(sessionId, serverSession);
     try {
-      await upsertLiveSessionInDb({
-        sessionId: serverSession.state.sessionId,
-        hostUid: serverSession.hostUid,
-        hostToken: serverSession.hostToken,
-        state: serverSession.state,
-        participantTokens: { [hostId]: hostToken },
-        kickedIds: [],
-        ended: false,
+      if (!req.body || typeof req.body !== 'object') {
+        res.status(400).json({ error: 'Invalid session request payload.' });
+        return;
+      }
+
+      let hostUid: string | null = null;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+          hostUid = decoded.uid;
+        } catch {
+          // allow anonymous session hosting fallback if token invalid/absent
+        }
+      }
+      const body = req.body as {
+        name?: unknown;
+        hostName?: unknown;
+        hostRole?: unknown;
+        bpm?: unknown;
+        timeSignature?: TimeSignature;
+        accentPattern?: BeatAccentType[];
+        subdivision?: SubdivisionType;
+        clickSound?: ClickSoundId;
+        clickProfile?: Partial<MetronomeSessionState['clickProfile']>;
+        countInBars?: CountInBars;
+        setlist?: SetlistItem[];
+        activeSetlistId?: string | null;
+        activeSongIndex?: number;
+      };
+
+      const sessionId = generateSessionCode();
+      const hostId = crypto.randomUUID();
+      const hostToken = crypto.randomBytes(24).toString('hex');
+      const hostName = sanitizeText(body.hostName, 32, 'Host');
+      const hostRole = sanitizeRole(body.hostRole);
+      const ts: TimeSignature = body.timeSignature?.numerator
+        ? {
+            numerator: Math.max(1, Math.min(16, Math.round(body.timeSignature.numerator))),
+            denominator: ([2, 4, 8, 16].includes(body.timeSignature.denominator)
+              ? body.timeSignature.denominator
+              : 4) as 2 | 4 | 8 | 16,
+            grouping: Array.isArray(body.timeSignature.grouping)
+              ? body.timeSignature.grouping.slice(0, 8)
+              : undefined,
+          }
+        : { numerator: 4, denominator: 4 };
+
+      const now = Date.now();
+      const hostParticipant: Participant = {
+        id: hostId,
+        name: hostName,
+        role: hostRole,
+        isHost: true,
+        isMuted: false,
+        status: 'synced',
+        latencyMs: 0,
+        permissions: { playStop: true, bpm: true, setlistNav: true },
+        joinedAt: now,
+      };
+
+      const initialSetlist = Array.isArray(body.setlist)
+        ? body.setlist.slice(0, 100)
+        : DEFAULT_SETLISTS[0].items;
+
+      const initialAccentPattern =
+        Array.isArray(body.accentPattern) && body.accentPattern.length === ts.numerator
+          ? (body.accentPattern.map((a) =>
+              a === 'accent' || a === 'normal' || a === 'mute' ? a : 'normal'
+            ) as BeatAccentType[])
+          : buildAccentPattern(ts);
+
+      const rawProfile =
+        body.clickProfile && typeof body.clickProfile === 'object' ? body.clickProfile : {};
+      const mergedProfile: MetronomeSessionState['clickProfile'] = {
+        ...DEFAULT_CLICK_PROFILE,
+        ...rawProfile,
+        normalSound: rawProfile.normalSound ?? body.clickSound ?? DEFAULT_CLICK_PROFILE.normalSound,
+      };
+
+      const clampedSongIndex =
+        initialSetlist.length > 0 && typeof body.activeSongIndex === 'number'
+          ? Math.max(0, Math.min(initialSetlist.length - 1, Math.round(body.activeSongIndex)))
+          : 0;
+
+      const state: MetronomeSessionState = {
+        sessionId,
+        name: sanitizeText(body.name, 48, 'Band Rehearsal'),
+        hostId,
+        hostName,
+        hostRole,
+        isLocked: false,
+        bpm: clampBpm(body.bpm ?? 120),
+        timeSignature: ts,
+        accentPattern: initialAccentPattern,
+        subdivision: body.subdivision ?? 'quarter',
+        clickProfile: mergedProfile,
+        countInBars: body.countInBars ?? 0,
+        playback: {
+          isPlaying: false,
+          anchorServerMs: now,
+          anchorTotalBeats: 0,
+          sequenceId: 1,
+          activeSectionIndex: 0,
+        },
+        activeSetlistId:
+          body.activeSetlistId !== undefined ? body.activeSetlistId : DEFAULT_SETLISTS[0].id,
+        activeSongIndex: clampedSongIndex,
+        setlist: initialSetlist,
+        participants: [hostParticipant],
+        createdAt: now,
+        lastActivityAt: now,
+      };
+
+      const serverSession: ServerSession = {
+        state,
+        hostUid,
+        hostToken,
+        participantTokens: new Map([[hostId, hostToken]]),
+        kickedIds: new Set(),
+        sockets: new Map(),
+        automationTimer: null,
+      };
+
+      sessions.set(sessionId, serverSession);
+      try {
+        await upsertLiveSessionInDb({
+          sessionId: serverSession.state.sessionId,
+          hostUid: serverSession.hostUid,
+          hostToken: serverSession.hostToken,
+          state: serverSession.state,
+          participantTokens: { [hostId]: hostToken },
+          kickedIds: [],
+          ended: false,
+        });
+      } catch (err) {
+        console.error('Failed to persist newly created live session:', err);
+      }
+      res.status(201).json({
+        session: state,
+        participantId: hostId,
+        token: hostToken,
+        serverTime: Date.now(),
       });
-    } catch (err) {
-      console.error('Failed to persist newly created live session:', err);
+    } catch (error) {
+      console.error('Unexpected error creating session:', error);
+      res.status(500).json({
+        error: 'Unable to initialize live session on the server. Please try again.',
+      });
     }
-    res.status(201).json({
-      session: state,
-      participantId: hostId,
-      token: hostToken,
-      serverTime: Date.now(),
-    });
   });
 
   // Join existing session (Participant)

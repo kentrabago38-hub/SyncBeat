@@ -13,7 +13,7 @@ export const PWAInstallButton: React.FC = () => {
       <button
         type="button"
         onClick={() => void install()}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20 transition-colors whitespace-nowrap shrink-0 min-h-[36px]"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/12 px-3 py-1.5 text-xs font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 hover:bg-amber-500/20 transition-colors whitespace-nowrap shrink-0 min-h-[36px]"
         title="Install SyncBeat App"
       >
         <Download className="w-3.5 h-3.5" />
@@ -28,41 +28,48 @@ export const PWAInstallButton: React.FC = () => {
         <button
           type="button"
           onClick={() => setShowIOSGuide(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors whitespace-nowrap shrink-0 min-h-[36px]"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10 transition-colors whitespace-nowrap shrink-0 min-h-[36px]"
         >
           <Download className="w-3.5 h-3.5" />
           <span>Install</span>
         </button>
 
         {showIOSGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#12141A] p-6 shadow-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 dark:bg-black/75 backdrop-blur-sm p-4">
+            <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#12141A] p-6 shadow-2xl">
               <div className="flex items-center justify-between">
-                <h3 className="font-display text-lg font-semibold text-white">Install SyncBeat on iOS</h3>
+                <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
+                  Install SyncBeat on iOS
+                </h3>
                 <button
                   type="button"
                   onClick={() => setShowIOSGuide(false)}
-                  className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                   aria-label="Close install instructions"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <ol className="mt-4 space-y-3 text-sm text-zinc-300">
+              <ol className="mt-4 space-y-3 text-sm text-slate-600 dark:text-zinc-300">
                 <li className="flex items-start gap-2.5">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-xs font-semibold text-amber-400">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-xs font-semibold text-amber-600 dark:text-amber-400">
                     1
                   </span>
                   <span>
-                    Tap the <strong className="text-white inline-flex items-center gap-1">Share <Share className="w-3.5 h-3.5 inline" /></strong> button in the Safari toolbar.
+                    Tap the{' '}
+                    <strong className="text-slate-900 dark:text-white inline-flex items-center gap-1">
+                      Share <Share className="w-3.5 h-3.5 inline" />
+                    </strong>{' '}
+                    button in the Safari toolbar.
                   </span>
                 </li>
                 <li className="flex items-start gap-2.5">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-xs font-semibold text-amber-400">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-xs font-semibold text-amber-600 dark:text-amber-400">
                     2
                   </span>
                   <span>
-                    Scroll down and tap <strong className="text-white">Add to Home Screen</strong> for fullscreen offline rehearsal use.
+                    Scroll down and tap{' '}
+                    <strong className="text-slate-900 dark:text-white">Add to Home Screen</strong> for fullscreen offline rehearsal use.
                   </span>
                 </li>
               </ol>

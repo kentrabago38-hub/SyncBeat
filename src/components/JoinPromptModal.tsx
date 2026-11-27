@@ -80,17 +80,18 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-4">
-      <div className="scroll-touch pb-safe w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-white/10 bg-[#12141A] p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 dark:bg-black/80 backdrop-blur-sm sm:p-4">
+      <div className="animate-sheet-up scroll-touch pb-safe w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#12141A] p-5 sm:p-6 shadow-2xl">
+        <div className="sm:hidden mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300 dark:bg-white/20" aria-hidden="true" />
         <div className="flex items-center justify-between">
-          <div className="inline-flex items-center gap-2.5 text-xs font-mono-tabular font-semibold uppercase tracking-wider text-amber-400">
+          <div className="inline-flex items-center gap-2.5 text-xs font-mono-tabular font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
             <SyncBeatLogo variant="icon" className="w-7 h-7" />
             <span>Join Rehearsal · {code.toUpperCase()}</span>
           </div>
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
             aria-label="Dismiss"
           >
             <X className="w-4 h-4" />
@@ -98,26 +99,26 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
         </div>
 
         {loading ? (
-          <div className="py-10 text-center text-sm text-zinc-400">
-            Looking up session <span className="font-mono-tabular text-white">{code}</span>...
+          <div className="py-10 text-center text-sm text-slate-500 dark:text-zinc-400">
+            Looking up session <span className="font-mono-tabular text-slate-900 dark:text-white">{code}</span>...
           </div>
         ) : error && !preview ? (
           <div className="py-6 space-y-4">
-            <p className="text-sm text-rose-300">{error}</p>
+            <p className="text-sm text-rose-600 dark:text-rose-300">{error}</p>
             <button
               type="button"
               onClick={onDismiss}
-              className="w-full rounded-xl bg-white/10 py-2.5 text-sm font-semibold text-white"
+              className="w-full rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 dark:bg-white/10 dark:hover:bg-white/15 py-2.5 text-sm font-semibold dark:text-white"
             >
               Continue in Solo Mode
             </button>
           </div>
         ) : preview ? (
           <form onSubmit={(e) => void handleSubmit(e)} className="mt-4 space-y-4">
-            <div className="rounded-xl border border-white/[0.08] bg-[#181B23] p-4">
-              <h2 className="font-display text-xl font-bold text-white">{preview.name}</h2>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                <span className="font-mono-tabular text-amber-400 font-semibold">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 dark:border-white/[0.08] dark:bg-[#181B23] p-4">
+              <h2 className="font-display text-xl font-bold text-slate-900 dark:text-white">{preview.name}</h2>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                <span className="font-mono-tabular text-amber-600 dark:text-amber-400 font-semibold">
                   {preview.bpm} BPM
                 </span>
                 <span aria-hidden="true">·</span>
@@ -132,13 +133,13 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
             </div>
 
             {error && (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-200">
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-700 dark:text-rose-200">
                 {error}
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+              <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1.5">
                 Select Your Instrument / Role
               </label>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
@@ -150,7 +151,7 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
                     className={`rounded-lg py-2 px-2 text-xs font-medium transition ${
                       role === r
                         ? 'bg-amber-500 text-zinc-950 font-semibold'
-                        : 'bg-[#181B23] text-zinc-300 hover:bg-white/10'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-[#181B23] dark:text-zinc-300 dark:hover:bg-white/10'
                     }`}
                   >
                     {r}
@@ -160,7 +161,7 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">
+              <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
                 Your Name (Optional)
               </label>
               <input
@@ -169,7 +170,7 @@ export const JoinPromptModal: React.FC<JoinPromptModalProps> = ({
                 onChange={(e) => setName(e.target.value)}
                 placeholder={`e.g. ${role} Player`}
                 maxLength={32}
-                className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
               />
             </div>
 

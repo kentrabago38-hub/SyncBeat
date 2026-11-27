@@ -188,11 +188,13 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
   return (
     <div className="space-y-4">
       {/* Setlist Selector & Actions Header */}
-      <section className="hc-surface studio-panel rounded-2xl border border-white/[0.08] p-5">
+      <section className="hc-surface studio-panel rounded-2xl border border-slate-200/90 dark:border-white/[0.08] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-xl font-bold text-white">Setlist Manager</h2>
-            <p className="mt-0.5 text-xs text-zinc-400">
+            <h2 className="font-display text-xl font-bold text-slate-900 dark:text-white">
+              Setlist Manager
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
               Drag songs or use arrows to reorder, configure count-ins, or add tempo sections.
             </p>
           </div>
@@ -202,7 +204,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
               <button
                 type="button"
                 onClick={() => setShowNewSetInput((v) => !v)}
-                className="studio-keycap inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#181B23] px-3.5 py-2 text-xs font-medium text-zinc-200 hover:bg-white/10 transition min-h-[40px]"
+                className="studio-keycap inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-200 dark:hover:bg-white/10 transition min-h-[40px]"
               >
                 <ListMusic className="w-3.5 h-3.5" />
                 <span>New Set</span>
@@ -233,8 +235,8 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                 }}
                 className={`studio-keycap rounded-xl px-3.5 py-2 text-xs font-medium transition whitespace-nowrap shrink-0 ${
                   active
-                    ? 'bg-white/15 text-white border border-white/20'
-                    : 'bg-[#181B23] text-zinc-400 border border-transparent hover:text-zinc-200'
+                    ? 'bg-slate-900 text-white border border-slate-900 dark:bg-white/15 dark:text-white dark:border-white/20'
+                    : 'bg-slate-100 text-slate-600 border border-slate-200 hover:text-slate-900 dark:bg-[#181B23] dark:text-zinc-400 dark:border-transparent dark:hover:text-zinc-200'
                 }`}
               >
                 {setItem.name} · <span className="font-mono-tabular">{setItem.items.length}</span>
@@ -253,7 +255,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                   onLoadSetlist(next[0].items, next[0].id);
                 }
               }}
-              className="ml-auto shrink-0 rounded-xl border border-white/10 bg-[#181B23] px-3 py-2 text-xs text-zinc-400 hover:border-rose-500/40 hover:text-rose-300 transition"
+              className="ml-auto shrink-0 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-600 hover:border-rose-500/40 hover:text-rose-600 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-400 dark:hover:text-rose-300 transition"
               title={`Delete ${currentSetlist.name}`}
             >
               Delete Set
@@ -269,7 +271,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
               onChange={(e) => setNewSetName(e.target.value)}
               placeholder="e.g., Friday Night Acoustic Set"
               maxLength={48}
-              className="flex-1 rounded-xl border border-white/10 bg-[#0A0B0E] px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600"
+              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
             />
             <button
               type="submit"
@@ -282,19 +284,19 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
 
         {currentSetlist && currentSetlist.items.length > 3 && (
           <div className="relative mt-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-zinc-500" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Filter songs by title, BPM, or notes..."
-              className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] pl-9 pr-8 py-2 text-xs text-white placeholder:text-zinc-600"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-8 py-2 text-xs text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-white"
                 aria-label="Clear song filter"
               >
                 <X className="w-3.5 h-3.5" />
@@ -305,10 +307,10 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
       </section>
 
       {/* Song List */}
-      <section className="hc-surface studio-panel rounded-2xl border border-white/[0.08] divide-y divide-white/[0.06]">
+      <section className="hc-surface studio-panel rounded-2xl border border-slate-200/90 dark:border-white/[0.08] divide-y divide-slate-200 dark:divide-white/[0.06]">
         {!currentSetlist || currentSetlist.items.length === 0 ? (
           <div className="p-10 text-center">
-            <p className="text-sm text-zinc-400">No songs in this setlist yet.</p>
+            <p className="text-sm text-slate-500 dark:text-zinc-400">No songs in this setlist yet.</p>
             {isHost && (
               <button
                 type="button"
@@ -321,7 +323,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
             )}
           </div>
         ) : filteredSongs.length === 0 ? (
-          <div className="p-8 text-center text-xs text-zinc-400">
+          <div className="p-8 text-center text-xs text-slate-500 dark:text-zinc-400">
             No songs match &ldquo;{searchQuery}&rdquo;.
           </div>
         ) : (
@@ -346,19 +348,21 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                 }}
                 onDragEnd={() => setDragIndex(null)}
                 className={`flex items-center gap-3 p-4 transition-colors ${
-                  isActiveSong ? 'bg-amber-500/[0.07]' : 'hover:bg-white/[0.02]'
+                  isActiveSong
+                    ? 'bg-amber-500/[0.09] dark:bg-amber-500/[0.07]'
+                    : 'hover:bg-slate-50 dark:hover:bg-white/[0.02]'
                 } ${dragIndex === idx ? 'opacity-40' : ''}`}
               >
                 {isHost && (
                   <div
-                    className="hidden sm:flex cursor-grab text-zinc-600 hover:text-zinc-300 p-1"
+                    className="hidden sm:flex cursor-grab text-slate-400 hover:text-slate-700 dark:text-zinc-600 dark:hover:text-zinc-300 p-1"
                     title="Drag to reorder"
                   >
                     <GripVertical className="w-4 h-4" />
                   </div>
                 )}
 
-                <div className="font-mono-tabular text-xs font-semibold text-zinc-500 w-6 text-right shrink-0">
+                <div className="font-mono-tabular text-xs font-semibold text-slate-400 dark:text-zinc-500 w-6 text-right shrink-0">
                   {String(idx + 1).padStart(2, '0')}
                 </div>
 
@@ -366,7 +370,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                   type="button"
                   disabled={!canNav}
                   onClick={() => handlePlaySongFromSetlist(idx)}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#181B23] text-zinc-200 hover:border-amber-500/50 hover:text-amber-400 disabled:opacity-40 transition"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-slate-700 hover:border-amber-500/50 hover:text-amber-600 dark:border-white/10 dark:bg-[#181B23] dark:text-zinc-200 dark:hover:border-amber-500/50 dark:hover:text-amber-400 disabled:opacity-40 transition"
                   aria-label={`Load and play ${song.songName}`}
                 >
                   <Play className="w-4 h-4 fill-current" />
@@ -379,19 +383,21 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                   <div className="flex items-center gap-2">
                     <span
                       className={`font-display text-sm sm:text-base font-semibold truncate ${
-                        isActiveSong ? 'text-amber-400' : 'text-white'
+                        isActiveSong
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-slate-900 dark:text-white'
                       }`}
                     >
                       {song.songName}
                     </span>
                     {isActiveSong && (
-                      <span className="text-[11px] font-mono-tabular font-semibold uppercase text-amber-400">
+                      <span className="text-[11px] font-mono-tabular font-semibold uppercase text-amber-600 dark:text-amber-400">
                         · Active
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-400">
-                    <span className="font-mono-tabular text-zinc-200 font-medium">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 dark:text-zinc-400">
+                    <span className="font-mono-tabular text-slate-800 dark:text-zinc-200 font-medium">
                       {song.bpm} BPM
                     </span>
                     <span aria-hidden="true">·</span>
@@ -405,14 +411,16 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                     {song.tempoSections && song.tempoSections.length > 0 && (
                       <>
                         <span aria-hidden="true">·</span>
-                        <span className="text-amber-400/90">
+                        <span className="text-amber-600 dark:text-amber-400/90">
                           {song.tempoSections.map((t) => `${t.label} ${t.bpm}`).join(' → ')}
                         </span>
                       </>
                     )}
                   </div>
                   {song.notes && (
-                    <p className="mt-1 text-xs text-zinc-500 truncate">{song.notes}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500 truncate">
+                      {song.notes}
+                    </p>
                   )}
                 </div>
 
@@ -422,7 +430,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       type="button"
                       disabled={idx === 0}
                       onClick={() => void moveItem(idx, idx - 1)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-25"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white disabled:opacity-25"
                       aria-label="Move up"
                     >
                       <ArrowUp className="w-4 h-4" />
@@ -431,7 +439,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       type="button"
                       disabled={idx === currentSetlist.items.length - 1}
                       onClick={() => void moveItem(idx, idx + 1)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-25"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white disabled:opacity-25"
                       aria-label="Move down"
                     >
                       <ArrowDown className="w-4 h-4" />
@@ -448,7 +456,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                             : [],
                         });
                       }}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       aria-label={`Edit ${song.songName}`}
                     >
                       <Edit3 className="w-4 h-4" />
@@ -456,7 +464,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                     <button
                       type="button"
                       onClick={() => void handleDuplicate(song)}
-                      className="hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+                      className="hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       aria-label={`Duplicate ${song.songName}`}
                     >
                       <Copy className="w-4 h-4" />
@@ -464,7 +472,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                     <button
                       type="button"
                       onClick={() => void handleDelete(song.id)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-rose-500/15 hover:text-rose-400"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-500/15 hover:text-rose-600 dark:text-zinc-400 dark:hover:text-rose-400"
                       aria-label={`Delete ${song.songName}`}
                     >
                       <Trash2 className="w-4 h-4" />
@@ -479,39 +487,44 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
 
       {/* Song Editor Modal */}
       {editingItem && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm sm:p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 dark:bg-black/75 backdrop-blur-sm sm:p-4">
           <form
             onSubmit={(e) => void handleSaveSong(e)}
-            className="scroll-touch pb-safe w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-white/10 bg-[#12141A] p-6 shadow-2xl space-y-4"
+            className="animate-sheet-up scroll-touch pb-safe w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#12141A] p-5 sm:p-6 shadow-2xl space-y-4"
           >
+            <div className="sm:hidden mx-auto mb-1 h-1 w-10 rounded-full bg-slate-300 dark:bg-white/20" aria-hidden="true" />
             <div className="flex items-center justify-between">
-              <h3 className="font-display text-lg font-bold text-white">
+              <h3 className="font-display text-lg font-bold text-slate-900 dark:text-white">
                 {isNewSong ? 'Add Song to Setlist' : 'Edit Song'}
               </h3>
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}
-                className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Song Name</label>
+              <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                Song Name
+              </label>
               <input
                 type="text"
                 required
                 value={editingItem.songName}
                 onChange={(e) => setEditingItem({ ...editingItem, songName: e.target.value })}
                 placeholder="e.g., Amazing Grace"
-                className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3.5 py-2.5 text-sm text-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
               />
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">BPM (20–300)</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                  BPM (20–300)
+                </label>
                 <input
                   type="number"
                   min={20}
@@ -521,12 +534,14 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                   onChange={(e) =>
                     setEditingItem({ ...editingItem, bpm: Number(e.target.value) })
                   }
-                  className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3 py-2.5 font-mono-tabular text-sm text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono-tabular text-sm text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">Time Signature</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                  Time Signature
+                </label>
                 <select
                   value={`${editingItem.timeSignature.numerator}/${editingItem.timeSignature.denominator}`}
                   onChange={(e) => {
@@ -539,7 +554,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       });
                     }
                   }}
-                  className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3 py-2.5 font-mono-tabular text-sm text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono-tabular text-sm text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                 >
                   {TIME_SIGNATURE_PRESETS.map((p) => (
                     <option key={p.label} value={p.label}>
@@ -550,7 +565,9 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">Count-In</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                  Count-In
+                </label>
                 <select
                   value={editingItem.countInBars}
                   onChange={(e) =>
@@ -559,7 +576,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       countInBars: Number(e.target.value) as CountInBars,
                     })
                   }
-                  className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3 py-2.5 font-mono-tabular text-sm text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono-tabular text-sm text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                 >
                   <option value={0}>Off</option>
                   <option value={1}>1 Bar</option>
@@ -572,7 +589,9 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">Click Sound</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                  Click Sound
+                </label>
                 <select
                   value={editingItem.clickSound}
                   onChange={(e) =>
@@ -581,7 +600,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       clickSound: e.target.value as ClickSoundId,
                     })
                   }
-                  className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3 py-2.5 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                 >
                   {CLICK_SOUNDS.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -592,7 +611,9 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">Subdivision</label>
+                <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                  Subdivision
+                </label>
                 <select
                   value={editingItem.subdivision}
                   onChange={(e) =>
@@ -601,7 +622,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       subdivision: e.target.value as SubdivisionType,
                     })
                   }
-                  className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3 py-2.5 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                 >
                   {SUBDIVISIONS.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -614,7 +635,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
 
             <div className="grid grid-cols-2 gap-3 items-end">
               <div>
-                <label className="block text-xs font-medium text-zinc-400 mb-1">
+                <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
                   Length in Bars (0 = manual)
                 </label>
                 <input
@@ -625,27 +646,41 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                   onChange={(e) =>
                     setEditingItem({ ...editingItem, bars: Math.max(0, Number(e.target.value)) })
                   }
-                  className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3 py-2.5 font-mono-tabular text-sm text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono-tabular text-sm text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                 />
               </div>
 
-              <label className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#181B23] px-3.5 py-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingItem.autoAdvance}
-                  onChange={(e) =>
-                    setEditingItem({ ...editingItem, autoAdvance: e.target.checked })
+              <div className="flex items-center justify-between gap-2.5 rounded-xl border border-slate-200 bg-slate-100 dark:border-white/10 dark:bg-[#181B23] px-3.5 py-2 min-h-[44px]">
+                <span className="text-xs font-medium text-slate-800 dark:text-zinc-200">
+                  Auto-advance next song
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={editingItem.autoAdvance}
+                  aria-label="Auto-advance next song"
+                  onClick={() =>
+                    setEditingItem({ ...editingItem, autoAdvance: !editingItem.autoAdvance })
                   }
-                  className="accent-amber-500 w-4 h-4"
-                />
-                <span className="text-xs font-medium text-zinc-200">Auto-advance next song</span>
-              </label>
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
+                    editingItem.autoAdvance
+                      ? 'border-amber-500 bg-amber-500'
+                      : 'border-slate-300 bg-slate-200 dark:border-white/15 dark:bg-[#0A0B0E]'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      editingItem.autoAdvance ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
             {/* Automatic Tempo Sections (e.g., Verse -> Chorus -> Bridge) */}
-            <div className="pt-2 border-t border-white/[0.06]">
+            <div className="pt-2 border-t border-slate-200 dark:border-white/[0.06]">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-zinc-300">
+                <span className="text-xs font-medium text-slate-700 dark:text-zinc-300">
                   Tempo Changes / Song Sections (Optional)
                 </span>
                 <button
@@ -667,7 +702,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                       tempoSections: [...(editingItem.tempoSections ?? []), nextSec],
                     });
                   }}
-                  className="text-xs font-medium text-amber-400 hover:text-amber-300"
+                  className="text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
                 >
                   + Add Section
                 </button>
@@ -685,7 +720,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                           setEditingItem({ ...editingItem, tempoSections: list });
                         }}
                         placeholder="Section"
-                        className="col-span-5 rounded-lg border border-white/10 bg-[#0A0B0E] px-2.5 py-1.5 text-xs text-white"
+                        className="col-span-5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                       />
                       <input
                         type="number"
@@ -698,7 +733,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                           setEditingItem({ ...editingItem, tempoSections: list });
                         }}
                         title="BPM"
-                        className="col-span-3 rounded-lg border border-white/10 bg-[#0A0B0E] px-2.5 py-1.5 font-mono-tabular text-xs text-white"
+                        className="col-span-3 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono-tabular text-xs text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                       />
                       <input
                         type="number"
@@ -711,7 +746,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                           setEditingItem({ ...editingItem, tempoSections: list });
                         }}
                         title="Bars"
-                        className="col-span-3 rounded-lg border border-white/10 bg-[#0A0B0E] px-2.5 py-1.5 font-mono-tabular text-xs text-white"
+                        className="col-span-3 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono-tabular text-xs text-slate-900 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white"
                       />
                       <button
                         type="button"
@@ -721,7 +756,7 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
                           );
                           setEditingItem({ ...editingItem, tempoSections: list });
                         }}
-                        className="col-span-1 flex justify-center text-zinc-500 hover:text-rose-400"
+                        className="col-span-1 flex justify-center text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400"
                         aria-label="Remove section"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -733,13 +768,15 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Rehearsal Notes</label>
+              <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400 mb-1">
+                Rehearsal Notes
+              </label>
               <input
                 type="text"
                 value={editingItem.notes ?? ''}
                 onChange={(e) => setEditingItem({ ...editingItem, notes: e.target.value })}
                 placeholder="Cue notes, key, pad swell..."
-                className="w-full rounded-xl border border-white/10 bg-[#0A0B0E] px-3.5 py-2.5 text-sm text-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-[#0A0B0E] dark:text-white dark:placeholder:text-zinc-600"
               />
             </div>
 
@@ -747,13 +784,13 @@ export const SetlistManager: React.FC<SetlistManagerProps> = React.memo(({
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}
-                className="rounded-xl border border-white/10 px-4 py-2.5 text-xs font-medium text-zinc-300 hover:bg-white/5"
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5 min-h-[44px]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+                className="rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400 min-h-[44px] active:scale-[0.98] transition"
               >
                 Save Song
               </button>
