@@ -21,7 +21,9 @@ export interface BatteryStatusState {
   supported: boolean;
   levelPercent: number | null;
   charging: boolean;
+  chargingTimeSec: number | null;
   dischargingTimeSec: number | null;
+  isLowBattery: boolean;
 }
 
 function detectPWAMode(): boolean {
@@ -43,6 +45,7 @@ export function useBatteryStatus(): BatteryStatusState {
   const [supported, setSupported] = useState<boolean>(false);
   const [levelPercent, setLevelPercent] = useState<number | null>(null);
   const [charging, setCharging] = useState<boolean>(false);
+  const [chargingTimeSec, setChargingTimeSec] = useState<number | null>(null);
   const [dischargingTimeSec, setDischargingTimeSec] = useState<number | null>(null);
 
   useEffect(() => {
@@ -66,7 +69,7 @@ export function useBatteryStatus(): BatteryStatusState {
   }, []);
 
   useEffect(() => {
-    if (!isPWA || typeof navigator === 'undefined') {
+    if (typeof navigator === 'undefined') {
       return;
     }
 
@@ -85,6 +88,9 @@ export function useBatteryStatus(): BatteryStatusState {
       setSupported(true);
       setLevelPercent(pct);
       setCharging(Boolean(bm.charging));
+      setChargingTimeSec(
+        Number.isFinite(bm.chargingTime) && bm.chargingTime > 0 ? bm.chargingTime : null
+      );
       setDischargingTimeSec(
         Number.isFinite(bm.dischargingTime) && bm.dischargingTime > 0 ? bm.dischargingTime : null
       );
@@ -102,6 +108,7 @@ export function useBatteryStatus(): BatteryStatusState {
         syncFromManager(bm);
         bm.addEventListener('levelchange', handleChange);
         bm.addEventListener('chargingchange', handleChange);
+        bm.addEventListener('chargingtimechange', handleChange);
         bm.addEventListener('dischargingtimechange', handleChange);
       })
       .catch(() => {
@@ -113,16 +120,21 @@ export function useBatteryStatus(): BatteryStatusState {
       if (manager) {
         manager.removeEventListener('levelchange', handleChange);
         manager.removeEventListener('chargingchange', handleChange);
+        manager.removeEventListener('chargingtimechange', handleChange);
         manager.removeEventListener('dischargingtimechange', handleChange);
       }
     };
-  }, [isPWA]);
+  }, []);
+
+  const isLowBattery = levelPercent !== null && !charging && levelPercent <= 20;
 
   return {
     isPWA,
     supported,
     levelPercent,
     charging,
+    chargingTimeSec,
     dischargingTimeSec,
+    isLowBattery,
   };
 }

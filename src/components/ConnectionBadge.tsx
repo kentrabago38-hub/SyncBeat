@@ -27,14 +27,15 @@ function formatRemainingTime(seconds: number | null): string {
   const totalMins = Math.round(seconds / 60);
   const hours = Math.floor(totalMins / 60);
   const mins = totalMins % 60;
-  if (hours > 0) return ` (~${hours}h ${mins}m left)`;
-  return ` (~${mins}m left)`;
+  if (hours > 0) return ` (~${hours}h ${mins}m)`;
+  return ` (~${mins}m)`;
 }
 
 const BatteryIndicator: React.FC = () => {
-  const { isPWA, supported, levelPercent, charging, dischargingTimeSec } = useBatteryStatus();
+  const { supported, levelPercent, charging, chargingTimeSec, dischargingTimeSec, isLowBattery } =
+    useBatteryStatus();
 
-  if (!isPWA || !supported || levelPercent === null) {
+  if (!supported || levelPercent === null) {
     return null;
   }
 
@@ -58,9 +59,17 @@ const BatteryIndicator: React.FC = () => {
     toneClass = 'text-emerald-600 dark:text-emerald-400';
   }
 
-  const title = charging
-    ? `Device battery: ${levelPercent}% (Charging)`
-    : `Device battery: ${levelPercent}%${formatRemainingTime(dischargingTimeSec)}`;
+  const timeDetail = charging
+    ? chargingTimeSec
+      ? ` · Full in${formatRemainingTime(chargingTimeSec)}`
+      : ' · Charging'
+    : dischargingTimeSec
+    ? `${formatRemainingTime(dischargingTimeSec)} remaining`
+    : isLowBattery
+    ? ' · Low battery'
+    : '';
+
+  const title = `Device battery: ${levelPercent}%${timeDetail}`;
 
   return (
     <>
@@ -89,7 +98,7 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
 }) => {
   if (!isWireless) {
     return (
-      <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap shrink-0">
+      <div className="inline-flex items-center gap-1.5 sm:gap-2 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap shrink-0">
         <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-zinc-500" aria-hidden="true" />
         <span className="font-medium text-slate-700 dark:text-zinc-300">Solo Mode</span>
         {!compact && <BatteryIndicator />}
@@ -128,7 +137,7 @@ export const ConnectionBadge: React.FC<ConnectionBadgeProps> = ({
 
   return (
     <div
-      className="inline-flex items-center gap-2 text-xs whitespace-nowrap shrink-0"
+      className="inline-flex items-center gap-1.5 sm:gap-2 text-xs whitespace-nowrap shrink-0"
       role="status"
       aria-live="polite"
     >

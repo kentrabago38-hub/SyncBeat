@@ -118,6 +118,56 @@ async function getOrHydrateSession(code: string, forceRefresh = false): Promise<
   }
 }
 
+async function tryBuildRehydratedServerSession(
+  code: string,
+  participantId: string | undefined,
+  token: string | undefined,
+  rehydrateState: unknown
+): Promise<ServerSession | null> {
+  if (!participantId || !token || !rehydrateState || typeof rehydrateState !== 'object') {
+    return null;
+  }
+  const clean = code.toUpperCase().trim();
+  try {
+    const dbRecord = await getLiveSessionFromDb(clean);
+    if (dbRecord?.ended) {
+      return null;
+    }
+  } catch {
+    // ignore DB check error during fallback recovery
+  }
+  const candidate = rehydrateState as MetronomeSessionState;
+  if (
+    typeof candidate.sessionId !== 'string' ||
+    candidate.sessionId.toUpperCase().trim() !== clean ||
+    !Array.isArray(candidate.participants)
+  ) {
+    return null;
+  }
+  const hasParticipant = candidate.participants.some((p) => p && p.id === participantId);
+  if (!hasParticipant) {
+    return null;
+  }
+  const tokenMap = new Map<string, string>();
+  tokenMap.set(participantId, token);
+  const restored: ServerSession = {
+    state: { ...candidate, sessionId: clean, lastActivityAt: Date.now() },
+    hostUid: null,
+    hostToken: candidate.hostId === participantId ? token : '',
+    participantTokens: tokenMap,
+    kickedIds: new Set(),
+    sockets: new Map(),
+    pendingSignals: new Map(),
+    automationTimer: null,
+  };
+  sessions.set(clean, restored);
+  if (restored.state.playback.isPlaying) {
+    scheduleNextAutomation(restored);
+  }
+  persistSessionToDb(restored);
+  return restored;
+}
+
 const sessions = new Map<string, ServerSession>();
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -710,28 +760,44 @@ async function startServer() {
   app.post('/api/sessions/:code/sync', async (req, res) => {
     const serverRecvTime = Date.now();
     const code = req.params.code.toUpperCase().trim();
-    const { participantId, token, latencyMs, status } = req.body as {
+    const { participantId, token, latencyMs, status, rehydrateState } = req.body as {
       participantId?: string;
       token?: string;
       latencyMs?: number;
       status?: Participant['status'];
+      rehydrateState?: unknown;
     };
 
     let session = await getOrHydrateSession(code);
     if (session && participantId && token && session.participantTokens.get(participantId) !== token) {
       session = await getOrHydrateSession(code, true);
     }
+    if (!session && rehydrateState) {
+      session = await tryBuildRehydratedServerSession(code, participantId, token, rehydrateState);
+    }
     if (!session) {
-      res.status(404).json({ error: 'Session not found', ended: false });
+      res.status(404).json({ error: 'Session not found', ended: false, rehydrateRequired: true });
       return;
     }
     if (participantId && session.kickedIds.has(participantId)) {
       res.status(403).json({ error: 'Removed by session host', kicked: true });
       return;
     }
-    if (!participantId || !token || session.participantTokens.get(participantId) !== token) {
+    if (!participantId || !token) {
       res.status(401).json({ error: 'Unauthorized session token' });
       return;
+    }
+    if (session.participantTokens.get(participantId) !== token) {
+      const isListedParticipant =
+        !session.participantTokens.has(participantId) &&
+        session.state.participants.some((m) => m.id === participantId);
+      if (isListedParticipant) {
+        session.participantTokens.set(participantId, token);
+        persistSessionToDb(session);
+      } else {
+        res.status(401).json({ error: 'Unauthorized session token' });
+        return;
+      }
     }
 
     let dirty = false;
@@ -788,8 +854,11 @@ async function startServer() {
     if (session && participantId && token && session.participantTokens.get(participantId) !== token) {
       session = await getOrHydrateSession(code, true);
     }
+    if (!session && body.rehydrateState) {
+      session = await tryBuildRehydratedServerSession(code, participantId, token, body.rehydrateState);
+    }
     if (!session) {
-      res.status(404).json({ error: 'Session not found', ended: false });
+      res.status(404).json({ error: 'Session not found', ended: false, rehydrateRequired: true });
       return;
     }
     if (!participantId || !token || session.participantTokens.get(participantId) !== token) {

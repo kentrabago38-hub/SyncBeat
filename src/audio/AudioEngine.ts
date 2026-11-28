@@ -81,6 +81,7 @@ export class AudioEngine {
   private fallbackWorker: Worker | null = null;
   private clockActive = false;
   private activeClickNodes = new Set<ActiveClickNode>();
+  private stateListeners = new Set<(suspended: boolean) => void>();
 
   private session: MetronomeSessionState | null = null;
   private serverOffsetMs = 0;
@@ -100,19 +101,39 @@ export class AudioEngine {
   private readonly scheduleAheadSec = 0.24;
 
   public isSuspended(): boolean {
-    return !this.ctx || this.ctx.state === 'suspended';
+    return !this.ctx || this.ctx.state !== 'running';
+  }
+
+  public onStateChange(listener: (suspended: boolean) => void): () => void {
+    this.stateListeners.add(listener);
+    return () => {
+      this.stateListeners.delete(listener);
+    };
+  }
+
+  private notifyStateChange(): void {
+    const suspended = this.isSuspended();
+    for (const listener of this.stateListeners) {
+      try {
+        listener(suspended);
+      } catch {
+        // ignore listener errors
+      }
+    }
   }
 
   public async unlockAudio(): Promise<boolean> {
     const ctx = this.ensureContext();
-    if (ctx.state === 'suspended') {
+    if (ctx.state !== 'running' && ctx.state !== 'closed') {
       try {
         await ctx.resume();
       } catch {
+        this.notifyStateChange();
         return false;
       }
     }
     this.scheduleAhead();
+    this.notifyStateChange();
     return ctx.state === 'running';
   }
 
@@ -143,13 +164,13 @@ export class AudioEngine {
     dcBlocker.frequency.setValueAtTime(32, ctx.currentTime);
     dcBlocker.Q.setValueAtTime(0.707, ctx.currentTime);
 
-    // Gentle transparent IEM safety limiter prevents simultaneous click+vocal clipping without ducking vocal consonants
+    // Transparent IEM safety limiter with 90ms release avoids modulating/buzzing low vocal formants
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.setValueAtTime(-1.5, ctx.currentTime);
-    limiter.knee.setValueAtTime(4, ctx.currentTime);
-    limiter.ratio.setValueAtTime(6, ctx.currentTime);
-    limiter.attack.setValueAtTime(0.001, ctx.currentTime);
-    limiter.release.setValueAtTime(0.015, ctx.currentTime);
+    limiter.threshold.setValueAtTime(-2.0, ctx.currentTime);
+    limiter.knee.setValueAtTime(6, ctx.currentTime);
+    limiter.ratio.setValueAtTime(4, ctx.currentTime);
+    limiter.attack.setValueAtTime(0.002, ctx.currentTime);
+    limiter.release.setValueAtTime(0.09, ctx.currentTime);
 
     input.connect(dcBlocker);
     dcBlocker.connect(limiter);
@@ -174,10 +195,11 @@ export class AudioEngine {
           this.reanchorToCurrentHardwareTime(this.session);
           this.scheduleAhead();
         }
+        this.notifyStateChange();
       });
     }
-    if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
+    if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') {
+      void this.ctx.resume().then(() => this.notifyStateChange()).catch(() => this.notifyStateChange());
     }
     return this.ctx;
   }
@@ -408,8 +430,8 @@ export class AudioEngine {
 
   private scheduleAhead(): void {
     if (!this.session || !this.session.playback.isPlaying || !this.ctx) return;
-    if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
+    if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') {
+      void this.ctx.resume().catch(() => {});
     }
 
     const session = this.session;

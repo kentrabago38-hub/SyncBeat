@@ -24,142 +24,150 @@ interface FormantFrame {
   f2: number;
   f3: number;
   durSec: number;
+  /** Fraction of frame [0..0.9] held steady at target phoneme before transitioning to next frame */
+  holdFrac?: number;
   pitchMul?: number;
   voiced?: number; // 0..1 glottal voicing mix
-  breath?: number; // 0..1 natural aspiration breathiness
-  noiseGain?: number; // consonant fricative/plosive level
-  noiseFreq?: number; // consonant center Hz
-  noiseQ?: number; // consonant resonance Q (lower = broader air, higher = sharper 's'/'t')
+  breath?: number; // 0..1 soft glottal aspiration air
+  nasal?: number; // 0..1 nasal murmur + anti-resonance blend (/m/, /n/)
+  noiseGain?: number; // unvoiced consonant fricative/plosive level
+  noiseFreq?: number; // consonant bandpass center Hz
+  noiseQ?: number; // consonant Q (lower = broader air, higher = sharper 's'/'t')
   amp?: number; // frame envelope multiplier
 }
 
 /**
- * Calibrated human vocal tract phoneme trajectories (Hz & timing tuned for studio clarity).
- * Plosive bursts ('t', 'k') & sibilants ('s', 'f', 'th') use crisp unvoiced air excitation
- * feeding into smooth cascade vowel transitions so every beat ('1, 2, 3, 4') and subdivision
- * ('and', 'e and a') cuts cleanly through dense band & IEM mixes.
+ * Articulatory phoneme formant trajectories tuned for human-like clarity and pronunciation.
+ * Steady vowel holds (holdFrac), true plosive closure gaps (for 'six', 'eight', 'let'),
+ * and nasal resonances (for 'one', 'seven', 'nine', 'ten', 'and') ensure every beat count
+ * is crisp, intelligible, and completely free of electronic buzz.
  */
 const VOCAL_RECIPES: Record<string, FormantFrame[]> = {
   one: [
-    // /w/ labial glide -> open /ʌ/ -> clean /n/ nasal resonance
-    { f1: 310, f2: 720, f3: 2300, durSec: 0.042, pitchMul: 0.96, voiced: 1, breath: 0.06, amp: 0.85 },
-    { f1: 640, f2: 1180, f3: 2480, durSec: 0.092, pitchMul: 1.05, voiced: 1, breath: 0.04, amp: 1.0 },
-    { f1: 310, f2: 1480, f3: 2420, durSec: 0.046, pitchMul: 0.94, voiced: 1, breath: 0.02, amp: 0.72 },
+    // /w/ rounded labial glide -> steady warm /ʌ/ -> nasal /n/ coda
+    { f1: 295, f2: 630, f3: 2240, durSec: 0.038, holdFrac: 0.25, pitchMul: 0.96, voiced: 1, breath: 0.03, nasal: 0, amp: 0.84 },
+    { f1: 665, f2: 1185, f3: 2450, durSec: 0.088, holdFrac: 0.58, pitchMul: 1.04, voiced: 1, breath: 0.025, nasal: 0.05, amp: 1.0 },
+    { f1: 270, f2: 1490, f3: 2380, durSec: 0.056, holdFrac: 0.65, pitchMul: 0.94, voiced: 1, breath: 0.015, nasal: 0.88, amp: 0.62 },
   ],
   two: [
-    // Crisp alveolar stop burst /t/ -> rounded pure /uː/
-    { f1: 380, f2: 1850, f3: 2900, durSec: 0.007, pitchMul: 1.06, voiced: 0, noiseGain: 0.02, noiseFreq: 3600, noiseQ: 1.4, amp: 0.1 },
-    { f1: 380, f2: 1850, f3: 2900, durSec: 0.022, pitchMul: 1.06, voiced: 0.05, noiseGain: 0.42, noiseFreq: 3900, noiseQ: 1.6, amp: 1.0 },
-    { f1: 300, f2: 860, f3: 2240, durSec: 0.132, pitchMul: 1.03, voiced: 1, breath: 0.05, noiseGain: 0.04, noiseFreq: 2600, noiseQ: 1.2, amp: 1.0 },
+    // Crisp /t/ burst -> brief aspiration -> sustained rounded /uː/
+    { f1: 380, f2: 1840, f3: 2820, durSec: 0.005, holdFrac: 0.5, pitchMul: 1.06, voiced: 0, noiseGain: 0.01, noiseFreq: 3700, noiseQ: 1.4, amp: 0.06 },
+    { f1: 380, f2: 1800, f3: 2780, durSec: 0.016, holdFrac: 0.55, pitchMul: 1.06, voiced: 0, breath: 0.08, noiseGain: 0.44, noiseFreq: 3950, noiseQ: 1.65, amp: 0.95 },
+    { f1: 345, f2: 1320, f3: 2420, durSec: 0.016, holdFrac: 0.15, pitchMul: 1.05, voiced: 0.65, breath: 0.24, noiseGain: 0.06, noiseFreq: 2800, noiseQ: 1.0, amp: 0.9 },
+    { f1: 305, f2: 865, f3: 2260, durSec: 0.135, holdFrac: 0.78, pitchMul: 1.02, voiced: 1, breath: 0.03, noiseGain: 0, amp: 1.0 },
   ],
   three: [
-    // Soft dental /θ/ -> distinctive /r/ F3 dip (~1620Hz) -> bright clear /iː/
-    { f1: 400, f2: 1650, f3: 2600, durSec: 0.028, pitchMul: 1.0, voiced: 0.1, noiseGain: 0.28, noiseFreq: 3200, noiseQ: 1.1, amp: 0.9 },
-    { f1: 360, f2: 1280, f3: 1620, durSec: 0.038, pitchMul: 1.01, voiced: 1, breath: 0.06, amp: 0.96 },
-    { f1: 285, f2: 2260, f3: 3020, durSec: 0.105, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
+    // Soft dental /θ/ -> retroflex /r/ (low F3 ~1560Hz) -> bright sustained /iː/
+    { f1: 390, f2: 1620, f3: 2560, durSec: 0.034, holdFrac: 0.55, pitchMul: 1.0, voiced: 0, noiseGain: 0.21, noiseFreq: 2950, noiseQ: 0.85, amp: 0.88 },
+    { f1: 355, f2: 1185, f3: 1560, durSec: 0.044, holdFrac: 0.35, pitchMul: 1.0, voiced: 1, breath: 0.03, amp: 0.94 },
+    { f1: 280, f2: 2290, f3: 3040, durSec: 0.112, holdFrac: 0.74, pitchMul: 1.05, voiced: 1, breath: 0.03, amp: 1.0 },
   ],
   four: [
-    // Crisp labiodental /f/ -> rich rounded /ɔː/ -> subtle /r/ F3 dip
-    { f1: 460, f2: 1120, f3: 2400, durSec: 0.030, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.28, noiseFreq: 2350, noiseQ: 1.0, amp: 0.9 },
-    { f1: 560, f2: 860, f3: 2420, durSec: 0.095, pitchMul: 1.04, voiced: 1, breath: 0.05, amp: 1.0 },
-    { f1: 450, f2: 1220, f3: 1680, durSec: 0.046, pitchMul: 0.95, voiced: 1, breath: 0.04, amp: 0.8 },
+    // Soft labiodental /f/ -> rounded /ɔː/ -> smooth /r/ tail
+    { f1: 460, f2: 1120, f3: 2380, durSec: 0.034, holdFrac: 0.55, pitchMul: 1.0, voiced: 0, noiseGain: 0.2, noiseFreq: 2150, noiseQ: 0.8, amp: 0.86 },
+    { f1: 550, f2: 845, f3: 2430, durSec: 0.094, holdFrac: 0.65, pitchMul: 1.04, voiced: 1, breath: 0.03, amp: 1.0 },
+    { f1: 440, f2: 1170, f3: 1630, durSec: 0.052, holdFrac: 0.5, pitchMul: 0.95, voiced: 1, breath: 0.025, amp: 0.76 },
   ],
   five: [
-    // Crisp /f/ -> wide /aɪ/ diphthong -> voiced /v/ tail
-    { f1: 460, f2: 1150, f3: 2400, durSec: 0.028, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.26, noiseFreq: 2400, noiseQ: 1.0, amp: 0.9 },
-    { f1: 730, f2: 1120, f3: 2480, durSec: 0.072, pitchMul: 1.05, voiced: 1, breath: 0.05, amp: 1.0 },
-    { f1: 410, f2: 1980, f3: 2660, durSec: 0.048, pitchMul: 1.01, voiced: 1, breath: 0.04, amp: 0.92 },
-    { f1: 320, f2: 1400, f3: 2380, durSec: 0.022, pitchMul: 0.94, voiced: 0.85, noiseGain: 0.09, noiseFreq: 2100, noiseQ: 1.1, amp: 0.65 },
+    // Soft /f/ -> wide /aɪ/ diphthong -> clean voiced /v/ closure
+    { f1: 460, f2: 1140, f3: 2380, durSec: 0.030, holdFrac: 0.55, pitchMul: 1.0, voiced: 0, noiseGain: 0.19, noiseFreq: 2200, noiseQ: 0.82, amp: 0.86 },
+    { f1: 755, f2: 1140, f3: 2470, durSec: 0.070, holdFrac: 0.52, pitchMul: 1.05, voiced: 1, breath: 0.03, amp: 1.0 },
+    { f1: 400, f2: 2020, f3: 2680, durSec: 0.052, holdFrac: 0.35, pitchMul: 1.01, voiced: 1, breath: 0.025, amp: 0.92 },
+    { f1: 290, f2: 1300, f3: 2340, durSec: 0.030, holdFrac: 0.6, pitchMul: 0.93, voiced: 0.9, breath: 0.02, noiseGain: 0.05, noiseFreq: 1950, noiseQ: 0.95, amp: 0.54 },
   ],
   six: [
-    // Tight clean /s/ -> bright /ɪ/ -> crisp /ks/ release
-    { f1: 400, f2: 1900, f3: 2800, durSec: 0.038, pitchMul: 1.02, voiced: 0, noiseGain: 0.42, noiseFreq: 4800, noiseQ: 2.2, amp: 0.95 },
-    { f1: 405, f2: 1960, f3: 2620, durSec: 0.076, pitchMul: 1.05, voiced: 1, breath: 0.04, amp: 1.0 },
-    { f1: 400, f2: 1850, f3: 2700, durSec: 0.032, pitchMul: 0.98, voiced: 0, noiseGain: 0.34, noiseFreq: 4500, noiseQ: 2.0, amp: 0.88 },
+    // Crisp /s/ -> bright /ɪ/ -> true /k/ silence gap -> crisp /k/ burst -> clean /s/
+    { f1: 400, f2: 1900, f3: 2760, durSec: 0.038, holdFrac: 0.65, pitchMul: 1.02, voiced: 0, noiseGain: 0.34, noiseFreq: 5400, noiseQ: 2.3, amp: 0.9 },
+    { f1: 405, f2: 1960, f3: 2620, durSec: 0.072, holdFrac: 0.66, pitchMul: 1.05, voiced: 1, breath: 0.025, amp: 1.0 },
+    { f1: 380, f2: 1850, f3: 2560, durSec: 0.022, holdFrac: 0.8, pitchMul: 0.98, voiced: 0, noiseGain: 0, amp: 0.04 },
+    { f1: 420, f2: 1880, f3: 2620, durSec: 0.014, holdFrac: 0.6, pitchMul: 1.0, voiced: 0, noiseGain: 0.42, noiseFreq: 2250, noiseQ: 1.35, amp: 0.92 },
+    { f1: 400, f2: 1860, f3: 2720, durSec: 0.032, holdFrac: 0.6, pitchMul: 0.98, voiced: 0, noiseGain: 0.3, noiseFreq: 5250, noiseQ: 2.1, amp: 0.84 },
   ],
   seven: [
-    // Clean /s/ -> /ɛ/ -> voiced /v/ -> /ən/
-    { f1: 420, f2: 1850, f3: 2700, durSec: 0.034, pitchMul: 1.02, voiced: 0, noiseGain: 0.38, noiseFreq: 4700, noiseQ: 2.2, amp: 0.92 },
-    { f1: 560, f2: 1780, f3: 2520, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
-    { f1: 360, f2: 1420, f3: 2380, durSec: 0.022, pitchMul: 0.98, voiced: 0.88, noiseGain: 0.08, noiseFreq: 2200, noiseQ: 1.1, amp: 0.8 },
-    { f1: 460, f2: 1380, f3: 2350, durSec: 0.044, pitchMul: 0.95, voiced: 1, breath: 0.03, amp: 0.78 },
+    // Crisp /s/ -> open /ɛ/ -> voiced /v/ -> nasal schwa /ən/
+    { f1: 410, f2: 1880, f3: 2720, durSec: 0.035, holdFrac: 0.65, pitchMul: 1.02, voiced: 0, noiseGain: 0.32, noiseFreq: 5300, noiseQ: 2.25, amp: 0.88 },
+    { f1: 575, f2: 1810, f3: 2520, durSec: 0.068, holdFrac: 0.6, pitchMul: 1.06, voiced: 1, breath: 0.025, amp: 1.0 },
+    { f1: 315, f2: 1350, f3: 2360, durSec: 0.024, holdFrac: 0.45, pitchMul: 0.98, voiced: 0.9, breath: 0.02, noiseGain: 0.04, noiseFreq: 2050, noiseQ: 0.95, amp: 0.58 },
+    { f1: 415, f2: 1410, f3: 2350, durSec: 0.050, holdFrac: 0.6, pitchMul: 0.94, voiced: 1, breath: 0.02, nasal: 0.72, amp: 0.74 },
   ],
   eight: [
-    // Bright /eɪ/ glide -> tight stop + crisp /t/ release
-    { f1: 500, f2: 1980, f3: 2620, durSec: 0.074, pitchMul: 1.05, voiced: 1, breath: 0.04, amp: 1.0 },
-    { f1: 330, f2: 2240, f3: 2860, durSec: 0.044, pitchMul: 1.02, voiced: 1, breath: 0.03, amp: 0.88 },
-    { f1: 380, f2: 1850, f3: 2800, durSec: 0.010, pitchMul: 1.0, voiced: 0, noiseGain: 0.02, noiseFreq: 3500, noiseQ: 1.4, amp: 0.1 },
-    { f1: 440, f2: 1900, f3: 2850, durSec: 0.022, pitchMul: 1.0, voiced: 0, noiseGain: 0.38, noiseFreq: 3900, noiseQ: 1.7, amp: 0.92 },
+    // Smooth /eɪ/ diphthong -> distinct /t/ silence closure -> crisp /t/ burst
+    { f1: 490, f2: 1960, f3: 2620, durSec: 0.068, holdFrac: 0.56, pitchMul: 1.05, voiced: 1, breath: 0.025, amp: 1.0 },
+    { f1: 325, f2: 2270, f3: 2880, durSec: 0.048, holdFrac: 0.35, pitchMul: 1.02, voiced: 1, breath: 0.02, amp: 0.88 },
+    { f1: 370, f2: 1860, f3: 2760, durSec: 0.026, holdFrac: 0.85, pitchMul: 1.0, voiced: 0, noiseGain: 0, amp: 0.03 },
+    { f1: 430, f2: 1900, f3: 2820, durSec: 0.022, holdFrac: 0.55, pitchMul: 1.0, voiced: 0, noiseGain: 0.38, noiseFreq: 3950, noiseQ: 1.65, amp: 0.9 },
   ],
   nine: [
-    { f1: 300, f2: 1520, f3: 2420, durSec: 0.032, pitchMul: 0.96, voiced: 1, breath: 0.03, amp: 0.85 },
-    { f1: 720, f2: 1120, f3: 2460, durSec: 0.076, pitchMul: 1.06, voiced: 1, breath: 0.05, amp: 1.0 },
-    { f1: 390, f2: 1960, f3: 2620, durSec: 0.048, pitchMul: 0.96, voiced: 1, breath: 0.03, amp: 0.8 },
+    { f1: 275, f2: 1520, f3: 2400, durSec: 0.036, holdFrac: 0.45, pitchMul: 0.96, voiced: 1, breath: 0.02, nasal: 0.85, amp: 0.72 },
+    { f1: 745, f2: 1130, f3: 2470, durSec: 0.072, holdFrac: 0.5, pitchMul: 1.06, voiced: 1, breath: 0.03, nasal: 0.08, amp: 1.0 },
+    { f1: 390, f2: 1990, f3: 2660, durSec: 0.044, holdFrac: 0.3, pitchMul: 0.99, voiced: 1, breath: 0.02, nasal: 0.25, amp: 0.86 },
+    { f1: 270, f2: 1510, f3: 2390, durSec: 0.034, holdFrac: 0.65, pitchMul: 0.94, voiced: 1, breath: 0.015, nasal: 0.88, amp: 0.6 },
   ],
   ten: [
-    { f1: 440, f2: 1880, f3: 2800, durSec: 0.022, pitchMul: 1.05, voiced: 0.05, noiseGain: 0.4, noiseFreq: 3900, noiseQ: 1.6, amp: 0.98 },
-    { f1: 560, f2: 1780, f3: 2520, durSec: 0.086, pitchMul: 1.04, voiced: 1, breath: 0.04, amp: 1.0 },
-    { f1: 300, f2: 1480, f3: 2420, durSec: 0.042, pitchMul: 0.95, voiced: 1, breath: 0.02, amp: 0.76 },
+    { f1: 430, f2: 1860, f3: 2780, durSec: 0.020, holdFrac: 0.55, pitchMul: 1.05, voiced: 0, breath: 0.08, noiseGain: 0.42, noiseFreq: 3900, noiseQ: 1.6, amp: 0.95 },
+    { f1: 575, f2: 1800, f3: 2520, durSec: 0.084, holdFrac: 0.62, pitchMul: 1.04, voiced: 1, breath: 0.025, amp: 1.0 },
+    { f1: 275, f2: 1480, f3: 2400, durSec: 0.046, holdFrac: 0.65, pitchMul: 0.94, voiced: 1, breath: 0.015, nasal: 0.85, amp: 0.66 },
   ],
   eleven: [
-    { f1: 390, f2: 1920, f3: 2580, durSec: 0.04, pitchMul: 0.97, voiced: 1, breath: 0.04, amp: 0.88 },
-    { f1: 560, f2: 1780, f3: 2520, durSec: 0.076, pitchMul: 1.06, voiced: 1, breath: 0.05, amp: 1.0 },
-    { f1: 460, f2: 1360, f3: 2360, durSec: 0.046, pitchMul: 0.95, voiced: 1, breath: 0.03, amp: 0.8 },
+    { f1: 390, f2: 1920, f3: 2580, durSec: 0.038, holdFrac: 0.45, pitchMul: 0.97, voiced: 1, breath: 0.025, amp: 0.86 },
+    { f1: 565, f2: 1790, f3: 2520, durSec: 0.074, holdFrac: 0.6, pitchMul: 1.06, voiced: 1, breath: 0.03, amp: 1.0 },
+    { f1: 420, f2: 1380, f3: 2360, durSec: 0.048, holdFrac: 0.6, pitchMul: 0.94, voiced: 1, breath: 0.02, nasal: 0.72, amp: 0.72 },
   ],
   twelve: [
-    { f1: 440, f2: 1880, f3: 2800, durSec: 0.022, pitchMul: 1.04, voiced: 0.05, noiseGain: 0.36, noiseFreq: 3800, noiseQ: 1.6, amp: 0.95 },
-    { f1: 320, f2: 880, f3: 2260, durSec: 0.036, pitchMul: 1.0, voiced: 1, breath: 0.04, amp: 0.92 },
-    { f1: 560, f2: 1760, f3: 2500, durSec: 0.092, pitchMul: 1.04, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 430, f2: 1860, f3: 2780, durSec: 0.020, holdFrac: 0.55, pitchMul: 1.04, voiced: 0, noiseGain: 0.36, noiseFreq: 3850, noiseQ: 1.6, amp: 0.92 },
+    { f1: 315, f2: 860, f3: 2260, durSec: 0.034, holdFrac: 0.3, pitchMul: 1.0, voiced: 1, breath: 0.025, amp: 0.9 },
+    { f1: 560, f2: 1740, f3: 2480, durSec: 0.092, holdFrac: 0.64, pitchMul: 1.04, voiced: 1, breath: 0.025, amp: 1.0 },
   ],
   thirteen: [
-    { f1: 420, f2: 1650, f3: 2550, durSec: 0.026, pitchMul: 1.0, voiced: 0.1, noiseGain: 0.25, noiseFreq: 3100, noiseQ: 1.1, amp: 0.9 },
-    { f1: 490, f2: 1350, f3: 1680, durSec: 0.062, pitchMul: 0.98, voiced: 1, breath: 0.05, amp: 0.95 },
-    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 410, f2: 1620, f3: 2540, durSec: 0.026, holdFrac: 0.5, pitchMul: 1.0, voiced: 0, noiseGain: 0.2, noiseFreq: 2950, noiseQ: 0.88, amp: 0.88 },
+    { f1: 485, f2: 1340, f3: 1650, durSec: 0.060, holdFrac: 0.55, pitchMul: 0.98, voiced: 1, breath: 0.03, amp: 0.95 },
+    { f1: 280, f2: 2260, f3: 3000, durSec: 0.076, holdFrac: 0.65, pitchMul: 1.06, voiced: 1, breath: 0.025, nasal: 0.2, amp: 1.0 },
   ],
   fourteen: [
-    { f1: 460, f2: 1120, f3: 2400, durSec: 0.024, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.24, noiseFreq: 2300, noiseQ: 1.0, amp: 0.9 },
-    { f1: 560, f2: 860, f3: 2420, durSec: 0.062, pitchMul: 1.0, voiced: 1, breath: 0.04, amp: 0.96 },
-    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 460, f2: 1120, f3: 2380, durSec: 0.024, holdFrac: 0.5, pitchMul: 1.0, voiced: 0, noiseGain: 0.19, noiseFreq: 2150, noiseQ: 0.8, amp: 0.88 },
+    { f1: 550, f2: 850, f3: 2420, durSec: 0.062, holdFrac: 0.58, pitchMul: 1.0, voiced: 1, breath: 0.025, amp: 0.96 },
+    { f1: 280, f2: 2260, f3: 3000, durSec: 0.076, holdFrac: 0.65, pitchMul: 1.06, voiced: 1, breath: 0.025, nasal: 0.2, amp: 1.0 },
   ],
   fifteen: [
-    { f1: 460, f2: 1150, f3: 2400, durSec: 0.024, pitchMul: 1.0, voiced: 0.05, noiseGain: 0.24, noiseFreq: 2350, noiseQ: 1.0, amp: 0.9 },
-    { f1: 405, f2: 1940, f3: 2580, durSec: 0.054, pitchMul: 0.98, voiced: 1, breath: 0.04, amp: 0.94 },
-    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 460, f2: 1140, f3: 2380, durSec: 0.024, holdFrac: 0.5, pitchMul: 1.0, voiced: 0, noiseGain: 0.19, noiseFreq: 2200, noiseQ: 0.8, amp: 0.88 },
+    { f1: 405, f2: 1940, f3: 2580, durSec: 0.054, holdFrac: 0.55, pitchMul: 0.98, voiced: 1, breath: 0.025, amp: 0.94 },
+    { f1: 280, f2: 2260, f3: 3000, durSec: 0.076, holdFrac: 0.65, pitchMul: 1.06, voiced: 1, breath: 0.025, nasal: 0.2, amp: 1.0 },
   ],
   sixteen: [
-    { f1: 400, f2: 1900, f3: 2700, durSec: 0.030, pitchMul: 1.02, voiced: 0, noiseGain: 0.36, noiseFreq: 4600, noiseQ: 2.1, amp: 0.92 },
-    { f1: 405, f2: 1940, f3: 2580, durSec: 0.052, pitchMul: 0.98, voiced: 1, breath: 0.04, amp: 0.94 },
-    { f1: 285, f2: 2240, f3: 2980, durSec: 0.074, pitchMul: 1.06, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 400, f2: 1900, f3: 2700, durSec: 0.028, holdFrac: 0.55, pitchMul: 1.02, voiced: 0, noiseGain: 0.3, noiseFreq: 5200, noiseQ: 2.2, amp: 0.9 },
+    { f1: 405, f2: 1940, f3: 2580, durSec: 0.052, holdFrac: 0.55, pitchMul: 0.98, voiced: 1, breath: 0.025, amp: 0.94 },
+    { f1: 280, f2: 2260, f3: 3000, durSec: 0.076, holdFrac: 0.65, pitchMul: 1.06, voiced: 1, breath: 0.025, nasal: 0.2, amp: 1.0 },
   ],
-  // Crisp, light subdivision syllables (pitched higher and tighter so 1-2-3-4 remains primary)
+  // Crisp, light subdivision syllables (clear vowel targets, zero buzz)
   and: [
-    { f1: 660, f2: 1750, f3: 2480, durSec: 0.046, pitchMul: 1.12, voiced: 1, breath: 0.05, amp: 1.0 },
-    { f1: 350, f2: 1500, f3: 2380, durSec: 0.030, pitchMul: 1.06, voiced: 1, breath: 0.03, amp: 0.72 },
+    { f1: 655, f2: 1740, f3: 2480, durSec: 0.048, holdFrac: 0.55, pitchMul: 1.12, voiced: 1, breath: 0.03, amp: 1.0 },
+    { f1: 310, f2: 1490, f3: 2380, durSec: 0.032, holdFrac: 0.6, pitchMul: 1.05, voiced: 1, breath: 0.02, nasal: 0.78, amp: 0.66 },
   ],
   e: [
-    { f1: 285, f2: 2280, f3: 3020, durSec: 0.062, pitchMul: 1.18, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 280, f2: 2290, f3: 3040, durSec: 0.064, holdFrac: 0.75, pitchMul: 1.16, voiced: 1, breath: 0.03, amp: 1.0 },
   ],
   a: [
-    { f1: 630, f2: 1240, f3: 2440, durSec: 0.062, pitchMul: 1.04, voiced: 1, breath: 0.05, amp: 1.0 },
+    { f1: 635, f2: 1240, f3: 2440, durSec: 0.064, holdFrac: 0.75, pitchMul: 1.04, voiced: 1, breath: 0.03, amp: 1.0 },
   ],
   trip: [
-    { f1: 440, f2: 1850, f3: 2700, durSec: 0.016, pitchMul: 1.06, voiced: 0.05, noiseGain: 0.3, noiseFreq: 3600, noiseQ: 1.5, amp: 0.92 },
-    { f1: 405, f2: 1920, f3: 2560, durSec: 0.056, pitchMul: 1.08, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 430, f2: 1850, f3: 2700, durSec: 0.015, holdFrac: 0.5, pitchMul: 1.06, voiced: 0, noiseGain: 0.28, noiseFreq: 3700, noiseQ: 1.5, amp: 0.9 },
+    { f1: 405, f2: 1920, f3: 2560, durSec: 0.056, holdFrac: 0.6, pitchMul: 1.08, voiced: 1, breath: 0.025, amp: 1.0 },
   ],
   let: [
-    { f1: 530, f2: 1740, f3: 2480, durSec: 0.056, pitchMul: 1.04, voiced: 1, breath: 0.04, amp: 1.0 },
-    { f1: 420, f2: 1850, f3: 2700, durSec: 0.014, pitchMul: 1.0, voiced: 0, noiseGain: 0.24, noiseFreq: 3700, noiseQ: 1.6, amp: 0.8 },
+    { f1: 545, f2: 1760, f3: 2480, durSec: 0.054, holdFrac: 0.6, pitchMul: 1.04, voiced: 1, breath: 0.025, amp: 1.0 },
+    { f1: 380, f2: 1850, f3: 2700, durSec: 0.012, holdFrac: 0.8, pitchMul: 1.0, voiced: 0, noiseGain: 0, amp: 0.04 },
+    { f1: 420, f2: 1860, f3: 2740, durSec: 0.015, holdFrac: 0.5, pitchMul: 1.0, voiced: 0, noiseGain: 0.25, noiseFreq: 3800, noiseQ: 1.6, amp: 0.8 },
   ],
   ta: [
-    { f1: 440, f2: 1820, f3: 2700, durSec: 0.014, pitchMul: 1.06, voiced: 0.05, noiseGain: 0.28, noiseFreq: 3600, noiseQ: 1.5, amp: 0.92 },
-    { f1: 580, f2: 1280, f3: 2420, durSec: 0.052, pitchMul: 1.08, voiced: 1, breath: 0.04, amp: 1.0 },
+    { f1: 430, f2: 1820, f3: 2700, durSec: 0.014, holdFrac: 0.5, pitchMul: 1.06, voiced: 0, noiseGain: 0.26, noiseFreq: 3700, noiseQ: 1.5, amp: 0.9 },
+    { f1: 580, f2: 1280, f3: 2420, durSec: 0.054, holdFrac: 0.65, pitchMul: 1.08, voiced: 1, breath: 0.025, amp: 1.0 },
   ],
-  la: [{ f1: 580, f2: 1240, f3: 2420, durSec: 0.06, pitchMul: 1.1, voiced: 1, breath: 0.04, amp: 1.0 }],
-  li: [{ f1: 300, f2: 2180, f3: 2880, durSec: 0.06, pitchMul: 1.14, voiced: 1, breath: 0.04, amp: 1.0 }],
+  la: [{ f1: 580, f2: 1240, f3: 2420, durSec: 0.062, holdFrac: 0.7, pitchMul: 1.1, voiced: 1, breath: 0.025, amp: 1.0 }],
+  li: [{ f1: 295, f2: 2210, f3: 2900, durSec: 0.062, holdFrac: 0.7, pitchMul: 1.14, voiced: 1, breath: 0.025, amp: 1.0 }],
   go: [
-    { f1: 320, f2: 1360, f3: 2320, durSec: 0.022, pitchMul: 1.02, voiced: 1, breath: 0.04, amp: 0.9 },
-    { f1: 510, f2: 910, f3: 2380, durSec: 0.078, pitchMul: 1.12, voiced: 1, breath: 0.05, amp: 1.0 },
-    { f1: 360, f2: 760, f3: 2260, durSec: 0.065, pitchMul: 1.05, voiced: 1, breath: 0.03, amp: 0.82 },
+    { f1: 315, f2: 1360, f3: 2320, durSec: 0.022, holdFrac: 0.35, pitchMul: 1.02, voiced: 1, breath: 0.025, amp: 0.9 },
+    { f1: 515, f2: 910, f3: 2380, durSec: 0.078, holdFrac: 0.6, pitchMul: 1.12, voiced: 1, breath: 0.03, amp: 1.0 },
+    { f1: 360, f2: 760, f3: 2260, durSec: 0.065, holdFrac: 0.6, pitchMul: 1.05, voiced: 1, breath: 0.02, amp: 0.82 },
   ],
 };
 
@@ -186,13 +194,18 @@ interface BiquadState {
   y2: number;
 }
 
+interface CascadeState {
+  y1: number;
+  y2: number;
+}
+
 /**
  * AudioVocalizer synthesizes and schedules sample-accurate, IEM-safe vocal count
  * cues ('1', '2', '3', '4', ...) directly on a Web Audio API AudioContext timeline.
  *
- * Uses a natural Rosenberg glottal pulse + cascade formant vocal tract + shaped consonant
- * articulation and vocal presence EQ (~2.6kHz) so every beat & subdivision is warm,
- * studio-polished, intelligible, and completely free of inter-beat buzz.
+ * Uses a smooth anti-aliased Liljencrants-Fant (LF) glottal flow derivative source
+ * driving a true all-pole Klatt cascade vocal tract (F5->F4->F3->F2->F1 + nasal branch),
+ * producing warm, articulate human-style pronunciation with zero synthetic buzz.
  */
 export class AudioVocalizer {
   private bufferCache = new Map<string, AudioBuffer>();
@@ -285,24 +298,24 @@ export class AudioVocalizer {
 
     const subDiv = Math.max(1, subdivisionsPerBeat);
     const slotSec = 60 / Math.max(20, bpm) / subDiv;
-    // Slightly tighten vocal speed at high tempos or dense 1/16 subdivisions so full word finishes cleanly
+    // Allow full word articulation to complete cleanly inside rapid beats & 1/16 subdivisions
     const tempoFitBoost =
       buffer.duration > slotSec * 0.85
-        ? Math.min(1.24, Math.max(1.0, buffer.duration / (slotSec * 0.88)))
+        ? Math.min(subDiv >= 4 ? 1.55 : 1.32, Math.max(1.0, buffer.duration / (slotSec * 0.88)))
         : 1.0;
 
-    const baseRate = pitchBoost ?? (isAccent ? 1.045 : isSubdivision ? 1.02 : 1.0);
+    const baseRate = pitchBoost ?? (isAccent ? 1.04 : isSubdivision ? 1.03 : 1.0);
     const rate = baseRate * tempoFitBoost;
     source.playbackRate.setValueAtTime(rate, when);
 
     const effectiveBufferDur = buffer.duration / rate;
-    const capRatio = subDiv > 1 ? 0.93 : isSubdivision ? 0.54 : 0.86;
+    const capRatio = subDiv > 1 ? 0.94 : isSubdivision ? 0.56 : 0.88;
     const maxPlaySec = Math.max(0.045, Math.min(effectiveBufferDur, slotSec * capRatio));
 
     const gainNode = ctx.createGain();
-    const scale = isSubdivision ? 0.64 : isAccent ? 1.04 : 0.96;
+    const scale = isSubdivision ? 0.62 : isAccent ? 1.04 : 0.96;
     const level = Math.min(0.92, Math.max(0.0001, volume * scale));
-    const fadeInEnd = when + Math.min(0.007, maxPlaySec * 0.18);
+    const fadeInEnd = when + Math.min(0.007, maxPlaySec * 0.16);
     const fadeOutStart = when + Math.max(0.016, maxPlaySec - 0.026);
     const fadeOutEnd = when + maxPlaySec;
 
@@ -395,39 +408,65 @@ export class AudioVocalizer {
     const isNatural = style === 'natural';
     const activeDur = frames.reduce((acc, f) => acc + f.durSec, 0);
     const activeSamples = Math.max(1, Math.floor(sr * activeDur));
-    // 14ms pure zero silence padding so tail never clips
-    const padSamples = Math.floor(sr * 0.014);
+    // 18ms trailing silence guarantees clean stop boundaries with zero click
+    const padSamples = Math.floor(sr * 0.018);
     const totalSamples = activeSamples + padSamples;
     const buffer = ctx.createBuffer(1, totalSamples, sr);
     const out = buffer.getChannelData(0);
 
-    // Warm human fundamental: Natural (~136 Hz rehearsal baritone) vs Studio (~154 Hz stage cut)
-    const basePitchHz = isNatural ? 136 : 154;
+    // Clear natural speaking pitch: warm baritone-tenor (Natural) vs bright stage tenor (Studio)
+    const basePitchHz = isNatural ? 142 : 168;
     let phase = 0;
-    let prevGlottal = 0;
     let cursor = 0;
 
-    const makeState = (): BiquadState => ({ x1: 0, x2: 0, y1: 0, y2: 0 });
-    const f1State = makeState();
-    const f2State = makeState();
-    const f3State = makeState();
-    const f4State = makeState();
-    const chestState = makeState();
-    const presenceState = makeState();
-    const consonantHp = makeState();
-    const consonantBp = makeState();
-    const hpState = makeState();
-    const lpState = makeState();
+    const makeCascade = (): CascadeState => ({ y1: 0, y2: 0 });
+    const f5State = makeCascade();
+    const f4State = makeCascade();
+    const f3State = makeCascade();
+    const f2State = makeCascade();
+    const f1State = makeCascade();
+    const f2FrontState = makeCascade();
+    const nasalPoleState = makeCascade();
 
-    // 1-pole glottal spectral tilt state (-6dB/oct vocal fold warmth)
-    const glottalTiltCutoff = isNatural ? 880 : 1160;
-    const tiltCoeff = Math.exp((-2 * Math.PI * glottalTiltCutoff) / sr);
-    let tiltY = 0;
+    const makeBiquad = (): BiquadState => ({ x1: 0, x2: 0, y1: 0, y2: 0 });
+    const nasalZeroState = makeBiquad();
+    const chestState = makeBiquad();
+    const presenceState = makeBiquad();
+    const consonantHp = makeBiquad();
+    const consonantBp = makeBiquad();
+    const hpState = makeBiquad();
+    const lpState = makeBiquad();
 
-    // Normalized bandpass resonator (0dB peak gain at resonance center)
-    const stepResonator = (state: BiquadState, x: number, freq: number, bwHz: number): number => {
-      const clampedFreq = Math.min(sr * 0.43, Math.max(90, freq));
-      const q = Math.max(1.3, clampedFreq / Math.max(40, bwHz));
+    // Natural -6dB/oct glottal spectral rolloff above ~2.0-2.4kHz keeps F2/F3 vowels clear while preventing high-frequency buzz
+    const tiltCutoff = isNatural ? 1950 : 2350;
+    const tiltCoeff = Math.exp((-2 * Math.PI * tiltCutoff) / sr);
+    let tilt1 = 0;
+    let prevVowel = 0;
+
+    // Klatt 2-pole all-pole formant resonator (DC gain strictly 1.0, zero phase cancellation)
+    const stepAllPoleResonator = (
+      state: CascadeState,
+      x: number,
+      freq: number,
+      bwHz: number
+    ): number => {
+      const clampedFreq = Math.min(sr * 0.43, Math.max(85, freq));
+      const bw = Math.max(38, bwHz);
+      const r = Math.exp((-Math.PI * bw) / sr);
+      const theta = (2 * Math.PI * clampedFreq) / sr;
+      const c = -(r * r);
+      const b = 2 * r * Math.cos(theta);
+      const a = 1 - b - c;
+      const y = a * x + b * state.y1 + c * state.y2;
+      state.y2 = state.y1;
+      state.y1 = y;
+      return y;
+    };
+
+    // Bandpass resonator for shaped unvoiced consonant noise (/s/, /t/, /f/, /k/)
+    const stepBandpass = (state: BiquadState, x: number, freq: number, bwHz: number): number => {
+      const clampedFreq = Math.min(sr * 0.43, Math.max(120, freq));
+      const q = Math.max(0.7, clampedFreq / Math.max(80, bwHz));
       const w0 = (2 * Math.PI * clampedFreq) / sr;
       const sinW0 = Math.sin(w0);
       const cosW0 = Math.cos(w0);
@@ -441,7 +480,26 @@ export class AudioVocalizer {
       return y;
     };
 
-    // Peaking EQ filter for chest warmth (~205Hz) & speech presence (~2.6kHz)
+    // Gentle notch filter for nasal anti-formant (~1080Hz) during /n/ and /m/
+    const stepNotch = (state: BiquadState, x: number, freq: number, q: number): number => {
+      const w0 = (2 * Math.PI * Math.min(sr * 0.43, freq)) / sr;
+      const sinW0 = Math.sin(w0);
+      const cosW0 = Math.cos(w0);
+      const alpha = sinW0 / (2 * q);
+      const a0 = 1 + alpha;
+      const b0 = 1;
+      const b1 = -2 * cosW0;
+      const b2 = 1;
+      const a1 = -2 * cosW0;
+      const a2 = 1 - alpha;
+      const y = (b0 * x + b1 * state.x1 + b2 * state.x2 - a1 * state.y1 - a2 * state.y2) / a0;
+      state.x2 = state.x1;
+      state.x1 = x;
+      state.y2 = state.y1;
+      state.y1 = y;
+      return y;
+    };
+
     const stepPeaking = (state: BiquadState, x: number, freq: number, q: number, gainDb: number): number => {
       const A = Math.pow(10, gainDb / 40);
       const w0 = (2 * Math.PI * Math.min(sr * 0.43, freq)) / sr;
@@ -500,27 +558,50 @@ export class AudioVocalizer {
       return y;
     };
 
-    // Softened Rosenberg glottal pulse (0 <= p < 1) for rounder, less buzzy vocal fold closure
-    const sampleRosenbergGlottal = (p: number): number => {
-      const openPhase = isNatural ? 0.48 : 0.45;
-      const closePhase = isNatural ? 0.21 : 0.19;
-      if (p < openPhase) {
-        return 0.5 * (1 - Math.cos((Math.PI * p) / openPhase));
+    // C1-continuous Liljencrants-Fant (LF) glottal flow derivative with calibrated return phase (tr ~0.058):
+    // Excitates natural 1-2.8kHz F2/F3 vowel formants cleanly while avoiding sawtooth/step discontinuities
+    const tp = isNatural ? 0.42 : 0.40;
+    const te = isNatural ? 0.58 : 0.56;
+    const tr = isNatural ? 0.062 : 0.055;
+    const evalRawLf = (p: number): number => {
+      if (p < tp) {
+        return 0.44 * Math.pow(Math.sin((Math.PI * p) / tp), 1.35);
       }
-      if (p < openPhase + closePhase) {
-        return Math.cos((Math.PI * 0.5 * (p - openPhase)) / closePhase);
+      if (p < te) {
+        const closeT = (p - tp) / Math.max(0.01, te - tp);
+        return -0.5 * (1 - Math.cos(Math.PI * closeT));
+      }
+      if (p < te + tr) {
+        const retT = (p - te) / tr;
+        return -0.5 * (1 + Math.cos(Math.PI * retT));
       }
       return 0;
     };
 
-    const bw1 = isNatural ? 92 : 84;
-    const bw2 = isNatural ? 136 : 122;
-    const bw3 = isNatural ? 195 : 175;
-    const bw4 = isNatural ? 275 : 245;
-    const chestGainDb = isNatural ? 2.6 : 1.4;
-    const presenceFreq = isNatural ? 2550 : 2750;
-    const presenceGainDb = isNatural ? 2.2 : 3.6;
-    const outputLowpassHz = isNatural ? 5400 : 6400;
+    let lfDcSum = 0;
+    const dcEvalSteps = 256;
+    for (let k = 0; k < dcEvalSteps; k++) {
+      lfDcSum += evalRawLf((k + 0.5) / dcEvalSteps);
+    }
+    const lfDcOffset = lfDcSum / dcEvalSteps;
+
+    const sampleBandlimitedLf = (p: number, dp: number): number => {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) {
+        const subP = (p + ((k - 1.5) * 0.25) * dp + 1) % 1;
+        sum += evalRawLf(subP) - lfDcOffset;
+      }
+      return sum * 0.25;
+    };
+
+    const bw1 = isNatural ? 78 : 72;
+    const bw2 = isNatural ? 92 : 84;
+    const bw3 = isNatural ? 126 : 114;
+    const bw4 = isNatural ? 210 : 190;
+    const chestGainDb = isNatural ? 0.5 : -0.5;
+    const presenceFreq = isNatural ? 2150 : 2320;
+    const presenceGainDb = isNatural ? 5.2 : 6.2;
+    const outputLowpassHz = isNatural ? 4200 : 4800;
 
     let pinkNoise = 0;
 
@@ -532,12 +613,15 @@ export class AudioVocalizer {
           ? Math.max(1, activeSamples - cursor)
           : Math.max(1, Math.floor(frame.durSec * sr));
 
+      const holdFrac = Math.max(0, Math.min(0.88, frame.holdFrac ?? 0.4));
       const startVoiced = frame.voiced ?? 1;
       const endVoiced = next.voiced ?? startVoiced;
       const startPitch = frame.pitchMul ?? 1.0;
       const endPitch = next.pitchMul ?? startPitch;
-      const startBreath = frame.breath ?? 0.04;
+      const startBreath = frame.breath ?? 0.025;
       const endBreath = next.breath ?? startBreath;
+      const startNasal = frame.nasal ?? 0.0;
+      const endNasal = next.nasal ?? startNasal;
       const startNoise = frame.noiseGain ?? 0.0;
       const endNoise = next.noiseGain ?? startNoise;
       const startNoiseFreq = frame.noiseFreq ?? 3200;
@@ -549,80 +633,98 @@ export class AudioVocalizer {
 
       for (let i = 0; i < count && cursor < activeSamples; i++) {
         const rawT = i / Math.max(1, count);
-        const s = rawT * rawT * (3 - 2 * rawT);
+        // Hold steady on the phoneme center before gliding smoothly into the next phoneme
+        const glideT = rawT <= holdFrac ? 0 : (rawT - holdFrac) / Math.max(0.01, 1 - holdFrac);
+        const s = glideT * glideT * (3 - 2 * glideT);
 
         const f1 = frame.f1 + (next.f1 - frame.f1) * s;
         const f2 = frame.f2 + (next.f2 - frame.f2) * s;
         const f3 = frame.f3 + (next.f3 - frame.f3) * s;
-        const f4 = Math.min(3900, Math.max(3150, (isNatural ? 3420 : 3560) + (f3 - 2400) * 0.25));
+        const f4 = Math.min(3900, Math.max(3150, (isNatural ? 3440 : 3560) + (f3 - 2400) * 0.22));
         const pitchMul = startPitch + (endPitch - startPitch) * s;
         const voicedMix = startVoiced + (endVoiced - startVoiced) * s;
         const breathMix = startBreath + (endBreath - startBreath) * s;
+        const nasalMix = startNasal + (endNasal - startNasal) * s;
         const noiseAmp = startNoise + (endNoise - startNoise) * s;
         const noiseFreq = startNoiseFreq + (endNoiseFreq - startNoiseFreq) * s;
         const noiseQ = startNoiseQ + (endNoiseQ - startNoiseQ) * s;
         const frameAmp = startAmp + (endAmp - startAmp) * s;
 
-        // Expressive human prosody arc + subtle 0.28% organic micro-drift
+        // Smooth human cadence arc across syllable + subtle natural vibrato drift
         const progress = cursor / activeSamples;
         const prosodyArc = isNatural
-          ? 0.99 + Math.sin(progress * Math.PI) * 0.048 - progress * 0.055
-          : 1.01 + Math.sin(progress * Math.PI) * 0.032 - progress * 0.04;
-        const microDrift = 1 + Math.sin((cursor / sr) * 29.0) * 0.0028;
+          ? 1.0 + Math.sin(progress * Math.PI) * 0.042 - progress * 0.05
+          : 1.015 + Math.sin(progress * Math.PI) * 0.028 - progress * 0.036;
+        const microDrift = 1 + Math.sin((cursor / sr) * 26.0) * 0.0022;
 
         let glottalSource = 0;
         if (voicedMix > 0.001) {
           const pitch = basePitchHz * pitchMul * prosodyArc * microDrift;
-          phase += pitch / sr;
+          const dp = pitch / sr;
+          phase += dp;
           if (phase >= 1) phase -= 1;
 
-          // 2x oversampled glottal pulse differentiation + natural glottal spectral tilt
-          const gA = sampleRosenbergGlottal(phase);
-          const pMid = (phase + (0.5 * pitch) / sr) % 1;
-          const gB = sampleRosenbergGlottal(pMid);
-          const diffA = gB - prevGlottal;
-          const diffB = gA - gB;
-          prevGlottal = gA;
-          const rawPulse = (diffA + diffB) * 3.8;
+          const rawLf = sampleBandlimitedLf(phase, dp);
+          tilt1 = (1 - tiltCoeff) * rawLf + tiltCoeff * tilt1;
 
-          tiltY = (1 - tiltCoeff) * rawPulse + tiltCoeff * tiltY;
-
-          // Natural aspiration breath modulated by open glottis phase
-          const breathLevel = breathMix * (isNatural ? 1.15 : 0.85);
-          const breathNoise = (Math.random() * 2 - 1) * breathLevel * (0.65 + gA * 0.65);
-          glottalSource = (tiltY + breathNoise) * voicedMix;
+          // Subtle natural glottal airiness (only while vocal folds are open)
+          const openWindow = phase < te ? Math.sin((Math.PI * phase) / te) : 0;
+          const breathNoise = (Math.random() * 2 - 1) * breathMix * (0.45 + 0.55 * openWindow);
+          glottalSource = (tilt1 * 1.45 + breathNoise) * voicedMix;
         }
 
-        // 4-formant cascade + weighted parallel sum eliminates metallic hollow dips
-        const v1 = stepResonator(f1State, glottalSource, f1, bw1);
-        const v2 = stepResonator(f2State, v1 * 0.72 + glottalSource * 0.34, f2, bw2);
-        const v3 = stepResonator(f3State, v2 * 0.58 + glottalSource * 0.16, f3, bw3);
-        const v4 = stepResonator(f4State, v3 * 0.45 + glottalSource * 0.08, f4, bw4);
-        const vowelOut = v1 * 0.96 + v2 * 0.82 + v3 * 0.42 + v4 * 0.22;
+        // True acoustic cascade vocal tract: F5 -> F4 -> F3 -> F2 -> F1 (zero parallel raw buzz)
+        // Physiological vocal tract wall loss widens BW1 on close vowels (/i/, /u/) so F1 doesn't mask F2
+        const dynBw1 = f1 < 380 ? bw1 * 1.55 : bw1;
+        const dynBw2 = f2 > 1650 ? bw2 * 0.78 : bw2;
+        const dynBw3 = f2 > 1650 ? bw3 * 0.82 : bw3;
+        let tract = stepAllPoleResonator(f5State, glottalSource, isNatural ? 4300 : 4450, 320);
+        tract = stepAllPoleResonator(f4State, tract, f4, bw4);
+        tract = stepAllPoleResonator(f3State, tract, f3, dynBw3);
+        tract = stepAllPoleResonator(f2State, tract, f2, dynBw2);
+        tract = stepAllPoleResonator(f1State, tract, f1, dynBw1);
+        // Clean front-vowel F2 resonance clarity (/i/, /ei/, /I/) driven smoothly from tilted glottal wave
+        const f2FrontPeak = stepAllPoleResonator(f2FrontState, glottalSource, f2, dynBw2);
+        if (f2 > 1550 && voicedMix > 0.05) {
+          const frontBlend = Math.min(1, (f2 - 1550) / 600);
+          tract += f2FrontPeak * 0.22 * frontBlend;
+        }
 
-        // Clean consonant air shaping: high-passed white noise for crisp 's'/'t'/'th', warm pink air for 'f'/'v'
+        // Nasal murmur resonance + oral anti-formant notch for /n/ and /m/ clarity
+        if (nasalMix > 0.01) {
+          const dampedOral = stepNotch(nasalZeroState, tract, 1080, 2.4);
+          const nasalMurmur = stepAllPoleResonator(nasalPoleState, glottalSource * 0.72, 265, 68);
+          tract = dampedOral * (1 - nasalMix * 0.45) + nasalMurmur * nasalMix * 0.68;
+        }
+
+        // True +6dB/oct lip-radiation differentiation balances F1/F2/F3 naturally like human speech
+        const radiated = tract - prevVowel * 0.94;
+        prevVowel = tract;
+
+        // Clear shaped air for unvoiced consonants (/s/, /t/, /f/, /k/, /th/) balanced clearly with vowels
         const w = Math.random() * 2 - 1;
-        pinkNoise = pinkNoise * 0.38 + w * 0.62;
-        const brightAir = stepHighpass(consonantHp, w, 1500);
-        const exciterNoise = noiseFreq >= 2900 ? brightAir : pinkNoise;
-        const bwConsonant = Math.max(240, noiseFreq / Math.max(0.85, noiseQ));
-        const consonantScale = isNatural ? 0.86 : 1.0;
+        pinkNoise = pinkNoise * 0.42 + w * 0.58;
+        const brightAir = stepHighpass(consonantHp, w, 1750);
+        const exciterNoise = noiseFreq >= 2850 ? brightAir : pinkNoise;
+        const bwConsonant = Math.max(240, noiseFreq / Math.max(0.8, noiseQ));
+        const consonantScale = isNatural ? 1.05 : 1.15;
         const consonantOut =
-          stepResonator(consonantBp, exciterNoise, noiseFreq, bwConsonant) * noiseAmp * consonantScale;
+          stepBandpass(consonantBp, exciterNoise, noiseFreq, bwConsonant) *
+          noiseAmp *
+          consonantScale *
+          0.95;
 
-        let sample = (vowelOut + consonantOut) * frameAmp;
+        let sample = (radiated + consonantOut) * frameAmp;
 
-        // Warm chest body + calibrated vocal presence EQ
-        sample = stepPeaking(chestState, sample, 205, 0.85, chestGainDb);
-        sample = stepPeaking(presenceState, sample, presenceFreq, 0.95, presenceGainDb);
-        // Clean sub-105Hz rumble while keeping natural vocal fundamental warmth
-        sample = stepHighpass(hpState, sample, 105);
-        sample = stepLowpass(lpState, sample, outputLowpassHz);
+        // Calibrated vocal clarity EQ (strictly linear — zero distortion buzz)
+        sample = stepPeaking(chestState, sample, 195, 0.85, chestGainDb);
+        sample = stepPeaking(presenceState, sample, presenceFreq, 0.72, presenceGainDb);
+        sample = stepHighpass(hpState, sample, 110);
+        // Let bright /s/ sibilants breathe up to 6.8kHz during consonants, keep vowels smooth
+        const dynamicLpHz = noiseAmp > 0.18 && noiseFreq > 3500 ? 6800 : outputLowpassHz;
+        sample = stepLowpass(lpState, sample, dynamicLpHz);
 
-        // Gentle analog tape warmth soft-saturation
-        sample = Math.tanh(sample * 1.15) / 1.15;
-
-        // Smooth cosine fade-in (7ms) and fade-out (24ms) to pure silence
+        // Smooth cosine attack (7ms) and release (24ms) to pure zero silence
         const attackSamples = sr * 0.007;
         const releaseSamples = sr * 0.024;
         const attackEnv =
@@ -636,7 +738,7 @@ export class AudioVocalizer {
       }
     }
 
-    // Soft-knee RMS + peak normalization so all numbers ('one'..'eight') match perceived loudness
+    // Pure linear peak + RMS leveling so all counts ('one'..'eight') sit evenly without clipping
     let sumSq = 0;
     let maxAbs = 0;
     for (let i = 0; i < activeSamples; i++) {
@@ -646,8 +748,8 @@ export class AudioVocalizer {
       if (a > maxAbs) maxAbs = a;
     }
     const rms = Math.sqrt(sumSq / Math.max(1, activeSamples));
-    if (rms > 0.001 && maxAbs > 0.001) {
-      const targetGain = Math.min(0.85 / maxAbs, 0.23 / rms);
+    if (rms > 0.0005 && maxAbs > 0.0005) {
+      const targetGain = Math.min(0.82 / maxAbs, 0.21 / rms);
       for (let i = 0; i < activeSamples; i++) {
         out[i] *= targetGain;
       }

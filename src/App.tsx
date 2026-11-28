@@ -102,8 +102,8 @@ export default function App() {
   const auth = useAuth();
   const sync = useMetronomeSync(accessibility, auth.idToken);
 
-  // Keep screen awake during active metronome playback or Performance Mode
-  useWakeLock(sync.timeline.isPlaying || performanceMode);
+  // Keep screen awake during active metronome playback, Performance Mode, or live wireless sessions
+  useWakeLock(sync.timeline.isPlaying || performanceMode || sync.isWireless);
 
   useEffect(() => {
     const onOnline = () => setIsBrowserOnline(true);

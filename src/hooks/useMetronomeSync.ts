@@ -273,6 +273,10 @@ export function useMetronomeSync(
   const pingTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef<number>(0);
+  const wsFlapTimestampsRef = useRef<number[]>([]);
+  const pendingCommandsRef = useRef<Record<string, unknown>[]>([]);
+  const sendCommandRef = useRef<(payload: Record<string, unknown>) => void>(() => {});
+  const flushPendingCommandsRef = useRef<() => void>(() => {});
   const manualDisconnectRef = useRef<boolean>(false);
   const tapTimesRef = useRef<number[]>([]);
   const tapResetTimerRef = useRef<number | null>(null);
@@ -291,6 +295,40 @@ export function useMetronomeSync(
   const attemptAutoRejoinRef = useRef<
     (target: PersistedWirelessSession, reason: 'resume' | 'drop') => Promise<boolean>
   >(async () => false);
+
+  const applyAuthoritativeRemoteState = useCallback((nextState: MetronomeSessionState) => {
+    setRemoteSession((prev) => {
+      if (!prev || prev.sessionId !== nextState.sessionId) {
+        return nextState;
+      }
+      const prevSeq = prev.playback?.sequenceId ?? 0;
+      const nextSeq = nextState.playback?.sequenceId ?? 0;
+      if (nextSeq < prevSeq) {
+        return prev;
+      }
+      if (nextSeq === prevSeq && nextState.lastActivityAt < prev.lastActivityAt) {
+        return prev;
+      }
+      return nextState;
+    });
+  }, []);
+
+  const enqueuePendingCommand = useCallback((payload: Record<string, unknown>) => {
+    const cmdType = typeof payload.type === 'string' ? payload.type : '';
+    if (!cmdType || cmdType === 'host:endSession') return;
+    const queue = pendingCommandsRef.current;
+    if (cmdType.startsWith('transport:')) {
+      pendingCommandsRef.current = queue.filter(
+        (item) => !(typeof item.type === 'string' && item.type.startsWith('transport:'))
+      );
+    } else if (cmdType === 'setlist:selectSong') {
+      pendingCommandsRef.current = queue.filter((item) => item.type !== 'setlist:selectSong');
+    }
+    pendingCommandsRef.current.push(payload);
+    if (pendingCommandsRef.current.length > 10) {
+      pendingCommandsRef.current.shift();
+    }
+  }, []);
 
   const persistWirelessSession = useCallback((record: PersistedWirelessSession | null) => {
     lastWirelessSessionRef.current = record;
@@ -466,6 +504,29 @@ export function useMetronomeSync(
     audioEngine.updateSyncState(activeSession, offset);
     setAudioSuspended(activeSession.playback.isPlaying && audioEngine.isSuspended());
   }, [activeSession, isWireless]);
+
+  // Monitor OS audio interruptions (e.g. iOS Safari 'interrupted') and unlock cleanly on stage tap/keydown
+  useEffect(() => {
+    const unsubscribe = audioEngine.onStateChange((suspended) => {
+      setAudioSuspended(Boolean(activeSessionRef.current.playback.isPlaying && suspended));
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!audioSuspended || !activeSession.playback.isPlaying) return;
+    const handleGestureUnlock = () => {
+      void audioEngine.unlockAudio().then((ok) => {
+        if (ok) setAudioSuspended(false);
+      });
+    };
+    window.addEventListener('pointerdown', handleGestureUnlock, { passive: true });
+    window.addEventListener('keydown', handleGestureUnlock, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleGestureUnlock);
+      window.removeEventListener('keydown', handleGestureUnlock);
+    };
+  }, [activeSession.playback.isPlaying, audioSuspended]);
 
   // Load presets & setlists from backend (preferring whichever copy has newer updatedAt edits)
   useEffect(() => {
@@ -899,11 +960,20 @@ export function useMetronomeSync(
       }
       const creds = credsRef.current;
       if (!creds) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (!sendCommandViaMeshRef.current(payload)) {
+          enqueuePendingCommand(payload);
+        }
+        return;
+      }
       const sendTime = performance.now();
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 7000);
       void fetch(apiUrl(`/api/sessions/${encodeURIComponent(creds.sessionId)}/command`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
+        signal: controller.signal,
         body: JSON.stringify({
           ...payload,
           participantId: creds.participantId,
@@ -925,6 +995,7 @@ export function useMetronomeSync(
           }
           if (data.kicked) {
             manualDisconnectRef.current = true;
+            pendingCommandsRef.current = [];
             cleanupSocket();
             persistWirelessSession(null);
             credsRef.current = null;
@@ -936,6 +1007,7 @@ export function useMetronomeSync(
           }
           if (data.ended === true || res.status === 410) {
             manualDisconnectRef.current = true;
+            pendingCommandsRef.current = [];
             cleanupSocket();
             persistWirelessSession(null);
             credsRef.current = null;
@@ -946,6 +1018,7 @@ export function useMetronomeSync(
             return;
           }
           if (res.status === 404 && data.rehydrateRequired && remoteSessionRef.current) {
+            enqueuePendingCommand(payload);
             httpSyncNowRef.current?.();
             return;
           }
@@ -963,16 +1036,41 @@ export function useMetronomeSync(
             setStatusBanner(`Session code updated to ${data.newSessionId}`);
           }
           if (res.ok && data.session) {
-            setRemoteSession(data.session);
+            applyAuthoritativeRemoteState(data.session);
+          } else if (res.status >= 500) {
+            enqueuePendingCommand(payload);
           }
         })
         .catch(() => {
-          // If direct HTTP failed due to distance/weak Wi-Fi, relay command across stage mesh
-          sendCommandViaMeshRef.current(payload);
+          // If direct HTTP failed due to distance/weak Wi-Fi, relay command across stage mesh or queue for reconnect
+          if (!sendCommandViaMeshRef.current(payload)) {
+            enqueuePendingCommand(payload);
+          }
+        })
+        .finally(() => {
+          window.clearTimeout(timeoutId);
         });
     },
-    [cleanupSocket, persistWirelessSession, recordClockSample, sendWs]
+    [
+      applyAuthoritativeRemoteState,
+      cleanupSocket,
+      enqueuePendingCommand,
+      persistWirelessSession,
+      recordClockSample,
+      sendWs,
+    ]
   );
+
+  sendCommandRef.current = sendCommand;
+
+  flushPendingCommandsRef.current = () => {
+    if (pendingCommandsRef.current.length === 0 || !credsRef.current) return;
+    const queued = [...pendingCommandsRef.current];
+    pendingCommandsRef.current = [];
+    for (const cmd of queued) {
+      sendCommandRef.current(cmd);
+    }
+  };
 
   const startHttpSync = useCallback(
     (_creds: AuthCredentials) => {
@@ -1037,6 +1135,7 @@ export function useMetronomeSync(
 
           if (data.kicked) {
             manualDisconnectRef.current = true;
+            pendingCommandsRef.current = [];
             cleanupSocket();
             persistWirelessSession(null);
             credsRef.current = null;
@@ -1048,6 +1147,7 @@ export function useMetronomeSync(
           }
           if (data.ended === true || res.status === 410) {
             manualDisconnectRef.current = true;
+            pendingCommandsRef.current = [];
             cleanupSocket();
             persistWirelessSession(null);
             credsRef.current = null;
@@ -1105,7 +1205,7 @@ export function useMetronomeSync(
             if (typeof data.serverTime === 'number') {
               recordClockSample(sendTime, data.serverTime, data.serverRecvTime);
             }
-            setRemoteSession(data.session);
+            applyAuthoritativeRemoteState(data.session);
             if (lastWirelessSessionRef.current?.sessionId === data.session.sessionId) {
               persistWirelessSession({
                 ...lastWirelessSessionRef.current,
@@ -1119,6 +1219,7 @@ export function useMetronomeSync(
             }
             setStatusBanner(null);
             setReconnecting(false);
+            flushPendingCommandsRef.current();
           } else if (!res.ok) {
             consecutiveFailuresRef.current += 1;
             const offlineLimit = extendedRangeRef.current ? 6 : 4;
@@ -1166,7 +1267,7 @@ export function useMetronomeSync(
         void syncOnce();
       }, 900);
     },
-    [cleanupSocket, persistWirelessSession, recordClockSample]
+    [applyAuthoritativeRemoteState, cleanupSocket, persistWirelessSession, recordClockSample]
   );
 
   const connectWebSocket = useCallback(
@@ -1279,9 +1380,10 @@ export function useMetronomeSync(
         }
 
         if (msg.type === 'session:state' && msg.session) {
+          const wasAuthed = wsAuthedRef.current;
           wsAuthedRef.current = true;
           const nextState = msg.session as MetronomeSessionState;
-          setRemoteSession(nextState);
+          applyAuthoritativeRemoteState(nextState);
           if (lastWirelessSessionRef.current?.sessionId === nextState.sessionId) {
             persistWirelessSession({
               ...lastWirelessSessionRef.current,
@@ -1291,6 +1393,9 @@ export function useMetronomeSync(
           }
           broadcastMeshStateRef.current(nextState, serverOffsetRef.current);
           setStatusBanner(null);
+          if (!wasAuthed) {
+            flushPendingCommandsRef.current();
+          }
           return;
         }
 
@@ -1310,7 +1415,7 @@ export function useMetronomeSync(
             });
           }
           if (msg.session) {
-            setRemoteSession(msg.session as MetronomeSessionState);
+            applyAuthoritativeRemoteState(msg.session as MetronomeSessionState);
           }
           setStatusBanner(`Session code updated to ${newId}`);
           return;
@@ -1318,6 +1423,7 @@ export function useMetronomeSync(
 
         if (msg.type === 'session:kicked') {
           manualDisconnectRef.current = true;
+          pendingCommandsRef.current = [];
           cleanupSocket();
           persistWirelessSession(null);
           credsRef.current = null;
@@ -1330,6 +1436,7 @@ export function useMetronomeSync(
 
         if (msg.type === 'session:ended') {
           manualDisconnectRef.current = true;
+          pendingCommandsRef.current = [];
           cleanupSocket();
           persistWirelessSession(null);
           credsRef.current = null;
@@ -1356,6 +1463,7 @@ export function useMetronomeSync(
             return;
           }
           manualDisconnectRef.current = true;
+          pendingCommandsRef.current = [];
           cleanupSocket();
           persistWirelessSession(null);
           credsRef.current = null;
@@ -1381,6 +1489,17 @@ export function useMetronomeSync(
           return;
         }
 
+        // Guard against restrictive venue Wi-Fi proxies that drop open WebSockets repeatedly:
+        // after 3 drops inside 30s, fall back smoothly to HTTP clock-calibrated synchronization.
+        const now = Date.now();
+        wsFlapTimestampsRef.current = wsFlapTimestampsRef.current.filter((t) => now - t < 30_000);
+        wsFlapTimestampsRef.current.push(now);
+        if (wsFlapTimestampsRef.current.length >= 3) {
+          wsFlapTimestampsRef.current = [];
+          startHttpSync(credsRef.current);
+          return;
+        }
+
         const attempt = reconnectAttemptRef.current;
         reconnectAttemptRef.current = attempt + 1;
         setReconnecting(true);
@@ -1393,7 +1512,15 @@ export function useMetronomeSync(
         }, delay);
       };
     },
-    [cleanupSocket, clearBurstTimers, persistWirelessSession, recordClockSample, sendWs, startHttpSync]
+    [
+      applyAuthoritativeRemoteState,
+      cleanupSocket,
+      clearBurstTimers,
+      persistWirelessSession,
+      recordClockSample,
+      sendWs,
+      startHttpSync,
+    ]
   );
 
   // Automatically attempt to resume or rejoin a previous session ID after a connection drop or reload
@@ -1413,21 +1540,29 @@ export function useMetronomeSync(
 
       try {
         // Step 1: Attempt seamless resume using previous participantId & token
-        const syncRes = await fetch(
-          apiUrl(`/api/sessions/${encodeURIComponent(target.sessionId)}/sync`),
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store',
-            body: JSON.stringify({
-              participantId: target.participantId,
-              token: target.token,
-              latencyMs: 0,
-              status: 'syncing',
-              ...(target.lastState ? { rehydrateState: target.lastState } : {}),
-            }),
-          }
-        );
+        const syncController = new AbortController();
+        const syncTimeout = window.setTimeout(() => syncController.abort(), 10000);
+        let syncRes: Response;
+        try {
+          syncRes = await fetch(
+            apiUrl(`/api/sessions/${encodeURIComponent(target.sessionId)}/sync`),
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              signal: syncController.signal,
+              body: JSON.stringify({
+                participantId: target.participantId,
+                token: target.token,
+                latencyMs: 0,
+                status: 'syncing',
+                ...(target.lastState ? { rehydrateState: target.lastState } : {}),
+              }),
+            }
+          );
+        } finally {
+          window.clearTimeout(syncTimeout);
+        }
         const syncData = (await syncRes.json().catch(() => ({}))) as {
           session?: MetronomeSessionState;
           ended?: boolean;
@@ -1436,6 +1571,7 @@ export function useMetronomeSync(
 
         if (syncData.kicked || syncRes.status === 403) {
           manualDisconnectRef.current = true;
+          pendingCommandsRef.current = [];
           persistWirelessSession(null);
           setCredentials(null);
           setRemoteSession(null);
@@ -1446,6 +1582,7 @@ export function useMetronomeSync(
 
         if (syncData.ended === true || syncRes.status === 410) {
           manualDisconnectRef.current = true;
+          pendingCommandsRef.current = [];
           persistWirelessSession(null);
           setCredentials(null);
           setRemoteSession(null);
@@ -1464,7 +1601,7 @@ export function useMetronomeSync(
           pendingAutoRejoinRef.current = null;
           credsRef.current = creds;
           setCredentials(creds);
-          setRemoteSession(syncData.session);
+          applyAuthoritativeRemoteState(syncData.session);
           persistWirelessSession({
             ...target,
             sessionId: syncData.session.sessionId,
@@ -1483,18 +1620,26 @@ export function useMetronomeSync(
 
         // Step 2: Token/participant expired or evicted; automatically rejoin using the previous session ID
         if (syncRes.status === 401 || syncRes.status === 404) {
-          const joinRes = await fetch(
-            apiUrl(`/api/sessions/${encodeURIComponent(target.sessionId)}/join`),
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: target.name || 'Musician',
-                role: target.role || 'Guitar',
-                replacesParticipantId: target.participantId,
-              }),
-            }
-          );
+          const joinController = new AbortController();
+          const joinTimeout = window.setTimeout(() => joinController.abort(), 10000);
+          let joinRes: Response;
+          try {
+            joinRes = await fetch(
+              apiUrl(`/api/sessions/${encodeURIComponent(target.sessionId)}/join`),
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: joinController.signal,
+                body: JSON.stringify({
+                  name: target.name || 'Musician',
+                  role: target.role || 'Guitar',
+                  replacesParticipantId: target.participantId,
+                }),
+              }
+            );
+          } finally {
+            window.clearTimeout(joinTimeout);
+          }
           const joinData = (await joinRes.json().catch(() => ({}))) as {
             session?: MetronomeSessionState;
             participantId?: string;
@@ -1516,7 +1661,7 @@ export function useMetronomeSync(
             pendingAutoRejoinRef.current = null;
             credsRef.current = creds;
             setCredentials(creds);
-            setRemoteSession(joinData.session);
+            applyAuthoritativeRemoteState(joinData.session);
             persistWirelessSession({
               sessionId: joinData.session.sessionId,
               participantId: joinData.participantId,
@@ -1561,7 +1706,7 @@ export function useMetronomeSync(
         }
       }
     },
-    [connectWebSocket, persistWirelessSession]
+    [applyAuthoritativeRemoteState, connectWebSocket, persistWirelessSession]
   );
 
   attemptAutoRejoinRef.current = attemptAutoRejoin;
@@ -1648,9 +1793,15 @@ export function useMetronomeSync(
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('online', triggerFastResync);
+    const navConn =
+      typeof navigator !== 'undefined'
+        ? (navigator as unknown as { connection?: EventTarget }).connection
+        : undefined;
+    navConn?.addEventListener?.('change', triggerFastResync);
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('online', triggerFastResync);
+      navConn?.removeEventListener?.('change', triggerFastResync);
     };
   }, [attemptAutoRejoin, connectWebSocket, startHttpSync]);
 
@@ -1690,10 +1841,13 @@ export function useMetronomeSync(
       }
 
       let res: Response;
+      const createController = new AbortController();
+      const createTimeout = window.setTimeout(() => createController.abort(), 10000);
       try {
         res = await fetch(apiUrl('/api/sessions'), {
           method: 'POST',
           headers,
+          signal: createController.signal,
           body: JSON.stringify({
             name: opts.name,
             hostName: opts.hostName,
@@ -1711,10 +1865,17 @@ export function useMetronomeSync(
           }),
         });
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new Error(
+            'Session creation timed out after 10s. Check your Wi-Fi or hotspot signal and try again.'
+          );
+        }
         const reason = err instanceof Error && err.message ? ` (${err.message})` : '';
         throw new Error(
           `Could not reach the SyncBeat session server${reason}. Verify your connection and try again.`
         );
+      } finally {
+        window.clearTimeout(createTimeout);
       }
 
       if (!res.ok) {
@@ -1750,6 +1911,8 @@ export function useMetronomeSync(
       };
       manualDisconnectRef.current = false;
       pendingAutoRejoinRef.current = null;
+      pendingCommandsRef.current = [];
+      wsFlapTimestampsRef.current = [];
       credsRef.current = creds;
       setCredentials(creds);
       setRemoteSession(data.session);
@@ -1784,17 +1947,27 @@ export function useMetronomeSync(
       }
       const cleanCode = opts.code.toUpperCase().trim();
       let res: Response;
+      const joinController = new AbortController();
+      const joinTimeout = window.setTimeout(() => joinController.abort(), 10000);
       try {
         res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(cleanCode)}/join`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: joinController.signal,
           body: JSON.stringify({ name: opts.name, role: opts.role }),
         });
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new Error(
+            'Joining session timed out after 10s. Check your Wi-Fi or hotspot signal and try again.'
+          );
+        }
         const reason = err instanceof Error && err.message ? ` (${err.message})` : '';
         throw new Error(
           `Could not reach the SyncBeat session server${reason}. Verify your connection and try again.`
         );
+      } finally {
+        window.clearTimeout(joinTimeout);
       }
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -1817,6 +1990,8 @@ export function useMetronomeSync(
       };
       manualDisconnectRef.current = false;
       pendingAutoRejoinRef.current = null;
+      pendingCommandsRef.current = [];
+      wsFlapTimestampsRef.current = [];
       credsRef.current = creds;
       setCredentials(creds);
       setRemoteSession(data.session);
@@ -1839,6 +2014,8 @@ export function useMetronomeSync(
 
   const leaveSession = useCallback(() => {
     manualDisconnectRef.current = true;
+    pendingCommandsRef.current = [];
+    wsFlapTimestampsRef.current = [];
     cleanupSocket();
     persistWirelessSession(null);
     credsRef.current = null;
